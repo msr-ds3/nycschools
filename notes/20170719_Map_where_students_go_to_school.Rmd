@@ -1,0 +1,425 @@
+---
+title: "Where Do students go to school?? RO"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+#library(tigris)
+library(dplyr)
+library(leaflet)
+library(sp)
+library(ggmap)
+library(maptools)
+library(broom)
+library(httr)
+library(rgdal)
+library(reshape2)
+library(leaflet.extras)
+
+files <- Sys.glob('/data/nycdoe/Zoned DBNs/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(res_zip_cde = col_character(), census_block  = col_character(), census_tract = col_character()))
+  df$year <- year
+  df
+}
+
+zoneData <- map_df(files, read_csv_with_year)
+
+elementary_zoneData <- zoneData %>% filter(!is.na(zoned_elm_dbn))
+#records dropped: 152198
+nrow(zoneData) - nrow(elementary_zoneData)
+middle_zoneData <- zoneData %>% filter(!is.na(zoned_mid_dbn))
+nrow(zoneData) - nrow(middle_zoneData)
+#records dropped: 154924
+hs_zoneData <- zoneData %>% filter(!is.na(zoned_hs_dbn))
+nrow(zoneData) - nrow(hs_zoneData)
+#records dropped 206430
+
+##################################
+
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+bios <- map_df(files, read_csv_with_year)
+
+#bios_test <- bios_test %>% mutate(grade_level = as.integer(grade_level)) %>% filter(grade_level < 6)
+
+#bios_test
+############# this has only 382,468 rows ##############
+
+#match to zone data from 2007
+#join_2007 <- zoneData_7 %>% inner_join(bios_test, by = c("zoned_elm_dbn" = "dbn"))
+
+
+#bios_test %>% group_by(student_id_scram)%>% summarise(count = n()) %>% group_by(count) %>% summarise(countx = n())
+
+#zoneData_7 %>% group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(countx = n())
+
+```
+
+
+<!-- #Join the bio and and zone data for elementary school. This is only from 2015. -->
+<!-- ```{R echo = FALSE} -->
+<!-- #elem students merge with bio -->
+
+<!-- elem_year <- elementary_zoneData %>% filter(year == 2015) -->
+
+<!-- dbnBioData <- bios %>% -->
+<!--   select(student_id_scram, dbn, grade_level, year) %>% -->
+<!--   filter(year == 2015) -->
+
+<!-- dbnBioData <-  rename(dbnBioData, BioDbn = dbn) -->
+
+<!-- elementary_zone_bio_join <- inner_join(dbnBioData, elem_year, by = "student_id_scram" ) -->
+
+<!-- elementary_zone_bio <- elementary_zone_bio_join -->
+<!-- ``` -->
+
+# <span style="color:blue"> Tidy bio data </span>
+###Map grades to school level to detirmine elementary, middle and high school
+We assumed:
+
+* k-5 is elementary school
+* 6-8 is middle school
+* 9-12 is high school
+Calculations were made with this in mind. We are aware that some schools are only k-2, so students will be zoned differently for grade 3, but we are interested in the zone of kindergarten/lowest grade a students entered the system.
+
+```{R} 
+grades <- c(0, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12)
+schools <-c("em", "em", "em" , "em" , "em", "em", "mid" , "mid", "mid", "hs", "hs", "hs",  "hs")
+map_grade <- data.frame(grades, schools)
+```
+
+###'regrade' the grade_level so that all grades have a numeric value. 
+K is 0, all other grades before K are dropped because students are not zoned for school until Kindergarten.
+```{R}
+all_bios <- bios
+
+#bios_noNA <- all_bios%>% 
+ # filter(!is.na(student_id_scram)) #only one student id is na
+
+bios_dbn <- all_bios %>% 
+  select(student_id_scram, dbn, year, grade_level)
+
+bios_dbn <- bios_dbn %>% mutate(grade_level = ifelse(grade_level == "0K", "00", grade_level))
+bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filter(!is.na(grade_level))
+
+#join data so you see students
+bios_dbn <- bios_dbn %>% full_join(map_grade, by = c("grade_level" = "grades"))
+################################ MOST IMPORTANT ###############################################
+test<- bios_dbn %>% group_by(student_id_scram, schools, year, dbn) %>% summarise() 
+
+#only keep entry to each school level for each student
+bio_distinct_schools <- test %>% group_by(student_id_scram, schools) %>% filter(year == min(year))
+####################################################################################################
+
+#view
+#bios_dbn %>% group_by(student_id_scram, dbn, schools) %>% summarise()%>% arrange(student_id_scram) %>% View()
+
+smaller_data <- bios_dbn %>% group_by(student_id_scram, dbn, schools) %>% summarise()
+
+unique_data <- smaller_data %>% group_by(student_id_scram, schools) %>% 
+  distinct(student_id_scram, schools, .keep_all = TRUE) 
+
+#it works!
+# unique_data %>% 
+#   group_by(student_id_scram) %>%
+#   summarise(count =n())%>%
+#   group_by(count) %>%
+#   summarise(countx = n())
+
+#spread this now to get distance from zone to school. IMPORTANT: We only took one mid, high, em for each student. 
+#Some students changed schools, and we would not see this from this table.
+#################################################################
+bios_spread <- unique_data %>% spread(schools, dbn)
+##################################################################
+
+#display bio_distinct_schools
+
+bio_distinct_schools
+
+```
+#Tidy zone data
+```{R}
+#############################
+#ZONE DATA DOES NOT INCLUDE ANYTHING FROM 2005 or 2006
+#############################
+
+#sanity checks are commented
+
+# zoneData %>% select(student_id_scram, zoned_elm_dbn, zoned_mid_dbn, zoned_hs_dbn, year) %>%
+#   group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(countx = n()) 
+
+# zoneData %>% select(student_id_scram, zoned_elm_dbn, zoned_mid_dbn, zoned_hs_dbn, year) %>%
+#   group_by(student_id_scram) %>% summarise(count = n()) %>% 
+#   filter(count == 9) %>% head(1)
+
+#zoneData %>% filter(student_id_scram == 12507)
+
+distinct_zones <- zoneData %>% select(1:8) %>%  #used to be callued df_distinct
+  group_by(student_id_scram, zoned_elm_dbn, zoned_mid_dbn, zoned_hs_dbn, year) %>% 
+  distinct(student_id_scram, schools, .keep_all = TRUE) 
+
+#df_distinct %>% group_by(year) %>% summarise()
+
+distinct_zones
+```
+#Join zone and bio data on DBN
+We joined the data on DBNs from the zoned data and the DBN's from the bio data on each elementary, middle and high school.
+It is important to note that <span style = "color:red"><b>zone data only begins from 2007</b></span>. 
+For students who began elementary, middle or high school before 2007, we do NOT have the zoned dbn. Therefore, naturally these students are not included on maps of attended school vs zoned school. For all other counts, these students are included.
+
+<span style="color:red">Data Quirks:</span> Students are zoned to an elementary, middle and high school every time he/she is zoned. We had to detirmine the year a student entered elementary school, for example, and then find that year for that student in the zoned data to detirmine the zone that student was mapped to the year he/she entered elementary school. Zones change quite frequently and this granular data was important for the numbers later on.
+
+```{R}
+# reformat df to wide format
+bio_distinct_schools <- bio_distinct_schools %>% spread(schools, dbn)
+
+#join the data frames. All records that do not have a match are dropped. This ensures that the map will only include data that exists
+join_zone_bio <- inner_join(bio_distinct_schools, distinct_zones, by = c("year", "student_id_scram"))
+
+join_zone_bio
+```
+
+
+<!-- only 2015 -->
+<!-- ```{R echo = FALSE} -->
+<!-- #summarise the grade levels -->
+<!-- elementary_zone_bio <- elementary_zone_bio %>% mutate(grade_level = ifelse(grade_level == "0K", "00", grade_level)) -->
+
+<!-- # convert grades to integers where 0 = Kindergarten -->
+<!-- elementary_zone_bio <- elementary_zone_bio %>% mutate(grade_level = as.integer(grade_level)) %>% -->
+<!--   filter(!is.na(grade_level))  -->
+
+<!-- elementary_zone_bio <- elementary_zone_bio %>% filter(grade_level<6) %>% select(year.x, BioDbn, zoned_elm_dbn, student_id_scram, grade_level) -->
+
+<!-- elem_zone_tidy <- elementary_zone_bio %>% select(student_id_scram, zoned_elm_dbn, BioDbn, grade_level) -->
+
+<!-- ``` -->
+<!-- Match -->
+<!-- ```{r echo = FALSE} -->
+<!-- # match on zoned school and bio -->
+<!-- elem_zone_tidy %>% mutate(match_dbn = ifelse(zoned_elm_dbn == BioDbn, 1, 0)) %>%  -->
+<!--   group_by(match_dbn) %>% summarise(count = n()) -->
+
+<!-- # group by grade and get counts of matches by grade -->
+<!-- elem_zone_tidy %>% mutate(match_dbn = ifelse(zoned_elm_dbn == BioDbn, 1, 0)) %>%  -->
+<!--   group_by(grade_level, match_dbn) %>% summarise(count = n()) -->
+
+
+<!-- match_df <- elem_zone_tidy %>% mutate(match_dbn = ifelse(zoned_elm_dbn == BioDbn, 1, 0)) -->
+
+<!-- ``` -->
+
+#Match zoned and attended schools
+* 0 has em dbn, but does not match
+* 1 has em dbn and matches
+* -1 does NOT have em dbn
+```{r}
+join_zone_bio_matches <- join_zone_bio
+
+join_zone_bio_matches <- join_zone_bio_matches%>% 
+  mutate(matchEM = ifelse(!is.na(zoned_elm_dbn), ifelse(zoned_elm_dbn == em, 1, 0), -1))
+
+join_zone_bio_matches <- join_zone_bio_matches%>% 
+  mutate(matchMID = ifelse(!is.na(zoned_mid_dbn), ifelse(zoned_mid_dbn == mid, 1, 0), -1))
+
+join_zone_bio_matches <- join_zone_bio_matches%>% 
+  mutate(matchHS = ifelse(!is.na(zoned_hs_dbn), ifelse(zoned_hs_dbn == em, 1, 0), -1))
+```
+#Elementary school data
+
+add a collumn for boro
+* note that some DBNs are not in <b>district-boro-n<b> format. 
+```{r}
+# some dbns don't have a 0 boro and the dbn is in not in standard dbn format
+# 69,974 have a zoned boro of zero, 168,331 have a standard zoned boro
+
+em_data <- join_zone_bio_matches %>%filter(!is.na(em)) %>% mutate(zoned_boro = substr(zoned_elm_dbn, 3,3))
+em_data
+
+#%>% 
+
+  #group_by(zoned_boro) %>% 
+  #  summarise(count = n())
+  
+```
+
+## Number of students zoned to each elementary school
+```{r}
+# number of students zoned to a school (includes all years of data), we don't know how many seats each school has
+em_data %>% group_by(zoned_elm_dbn) %>% summarise(num_zoned_to_dbn = n())
+```
+
+```{r}
+# number of students who went to a specific elementary school
+local_zones_data <- full_join( (em_data %>% group_by(zoned_elm_dbn) %>% summarise(zoned_to_dbn = n())), 
+            (em_data %>% group_by(em) %>% summarise(went_to_dbn = n())),
+           by = c("zoned_elm_dbn" = "em") )
+
+local_zones_data <- full_join( local_zones_data, 
+           (join_zone_bio_matches %>% filter(matchEM == 1) %>% group_by(zoned_elm_dbn) %>% 
+   summarise(attending_zoned_dbn = n())),   by = "zoned_elm_dbn")
+
+local_zones_data <- local_zones_data %>% mutate(perc_local = (attending_zoned_dbn/went_to_dbn)*100)
+local_zones_data %>% mutate(boro = substr(zoned_elm_dbn, 3, 3)) %>% filter(!is.na(attending_zoned_dbn)) %>% group_by(boro) %>% summarize(sum_attended_zoned=sum(attending_zoned_dbn), sum_zoned= sum(zoned_to_dbn)) %>%
+  mutate(perc_boro_att_zoned = (sum_attended_zoned/sum_zoned)*100)
+
+
+local_zones_data
+
+```
+
+
+# ```{r}
+# 
+# # some dbns don't have a 0 boro and the dbn is in not in standard dbn format
+# match_df %>% filter(match_dbn == 0) %>% mutate(zoned_boro = substr(zoned_elm_dbn, 3,3)) #%>% 
+#   group_by(zoned_boro) %>% summarise(count = n())
+#   
+# # 69974 have a zoned boro of zero, 168331 have a standard zoned boro
+# match_df %>% filter(match_dbn == 0) %>% mutate(zoned_boro = substr(zoned_elm_dbn, 3,3)) %>%
+#   mutate(to_boro = substr(BioDbn, 3, 3)) %>% group_by(zoned_boro == 0) %>% summarise(count = n())
+# 
+# # count of students who went to 
+# match_df %>% filter(match_dbn == 0) %>% mutate(zoned_boro = substr(zoned_elm_dbn, 3,3)) %>%
+#   mutate(to_boro = substr(BioDbn, 3, 3))
+# 
+# # number of students zoned to a school
+# match_df %>% group_by(zoned_elm_dbn) %>% summarise(zoned_to_dbn = n())
+# 
+# # number of studebts who went to a specific school
+# local_zones_data <- full_join( (match_df %>% group_by(zoned_elm_dbn) %>% summarise(zoned_to_dbn = n())), 
+#             (match_df %>% group_by(BioDbn) %>% summarise(went_to_dbn = n())),
+#            by = c("zoned_elm_dbn" = "BioDbn") )
+# 
+# local_zones_data <- full_join( local_zones_data, 
+#            (match_df %>% filter(match_dbn == 1) %>% group_by(zoned_elm_dbn) %>% 
+#    summarise(attending_zoned_dbn = n())),
+#    by = "zoned_elm_dbn")
+# 
+# local_zones_data <- local_zones_data %>% mutate(perc_local = (attending_zoned_dbn/went_to_dbn)*100)
+# local_zones_data %>% mutate(boro = substr(zoned_elm_dbn, 3, 3)) %>% filter(!is.na(attending_zoned_dbn)) %>% group_by(boro) %>% summarize(sum_attended_zoned=sum(attending_zoned_dbn), sum_zoned= sum(zoned_to_dbn)) %>%
+#   mutate(perc_boro_att_zoned = (sum_attended_zoned/sum_zoned)*100)
+# 
+# 
+# local_zones_data
+# ```
+
+
+
+```{R}
+#get map dbns data nyc open data
+r<- GET("https://data.cityofnewyork.us/api/geospatial/cq6p-iwiy?method=export&format=GeoJSON")
+dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
+
+```
+
+```{R}
+
+#dbns@polygons
+#dbns@polygons[[1]]@Polygons[[1]]@coords[1,]
+#dbns@polygons[[2]]@Polygons[[1]]@coords[1,]
+#as.data.frame()
+df_spatial_dbns <- as.data.frame(dbns@data$dbn)
+
+
+# df_lat_long
+# for (i in 1:2) {
+#   df_lat_long[i] <- list(dbns@polygons[[i]]@Polygons[[1]]@coords[1,])
+# }
+
+#loop through polygons to get lat longs
+df_lat_long <- vector(mode = "list", length = 779)
+for (i in 1:779) {
+  df_lat_long[[i]] <- dbns@polygons[[i]]@Polygons[[1]]@coords[1,]
+}
+
+lat_long <- do.call(rbind, df_lat_long)
+
+dbns_latlong_bind <- cbind(df_spatial_dbns, lat_long)
+
+colnames(dbns_latlong_bind)[1] <- "dbn"
+colnames(dbns_latlong_bind)[2] <- "lat"
+colnames(dbns_latlong_bind)[3] <- "long"
+
+#elem_bio <- df %>% filter(!is.na(zoned_elm_dbn))
+
+#map_data <- merge(, by.x = "dbn", by.y = "")
+```
+#Map of school zones with DBN locations
+```{R}
+leaflet(dbns) %>%
+  addTiles() %>% 
+  addPolygons(popup = ~paste("School DBN:", dbn))%>%
+  addProviderTiles("CartoDB.Positron")%>%
+  setView(-73.98, 40.75, zoom = 13)
+
+```
+# Map of percent of students in each zone who attended the school he/she was zoned to
+```{R}
+
+map_data <- merge(dbns, local_zones_data, by.x = "dbn", by.y ="zoned_elm_dbn")
+
+
+# how many students went to their local school
+leaflet(map_data) %>%
+  addTiles() %>% 
+  addPolygons(popup = ~paste("Percent Local:", round(perc_local),"%"))%>%
+  addProviderTiles("CartoDB.Positron")%>%
+  setView(-73.98, 40.75, zoom = 13)
+
+
+#addCircles(~lng, ~lat, popup=ct$type, weight = 3, radius=40, 
+ #                color="#ffa500", stroke = TRUE, fillOpacity = 0.8) 
+```
+
+
+```{R}
+# leaflet(map_data) %>%
+#   addTiles() %>% 
+#   addWebGLHeatmap()%>%
+#   addPolygons(popup = ~paste("Percent Local:", round(perc_local),"%"))%>%
+#   addProviderTiles("CartoDB.Positron")%>%
+#   setView(-73.98, 40.75, zoom = 13)
+# 
+# leaflet(map_data) %>% 
+#   addProviderTiles(providers$CartoDB) %>%
+#   setView(-73.98, 40.75, zoom = 13 ) %>%
+#   addHeatmap(~ , ~, intensity = ~dbn,
+#              blur = 20, max = 0.05, radius = 15)
+
+pal <- colorNumeric(palette = "Blues",
+                    domain = range(map_data@data$perc_local, na.rm=T))
+
+leaflet(map_data) %>%
+  #addTiles() %>% 
+  addPolygons(fillColor = ~pal(perc_local), popup = ~perc_local, weight = 0) %>% 
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-73.98, 40.75, zoom = 13)
+```
+
+#Number of schools 
+```{R}
+
+local_zones_data %>% ggplot(aes(x  = perc_local)) + geom_histogram() + xlab("Number of schools")
+
+local_zones_data %>% ggplot(aes(y = perc_local, x = zoned_elm_dbn)) + geom_density() 
+```
+
+```{r}
+
+
+```
