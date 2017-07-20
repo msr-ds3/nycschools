@@ -1,0 +1,213 @@
+---
+title: '0719_typical_profile'
+author: "Keri and David"
+date: "7/18/2017"
+output: html_document
+---
+Setting up. Function to read in multiple files, selecting:
+Year, Student ID, DBN, Grade_Level, and Date
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, birth_mm_yyyy, sex, ethnicity, dbn, grade_level, contains("date"))
+}
+
+```
+Calling in Data
+```{r using bios df}
+setwd('/data/nycdoe/')
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+bios_backup <- map_df(files, read_csv_with_year)
+bios <- bios_backup
+```
+Configuring data
+```{r pressure, echo=TRUE}
+bios <- bios %>%
+  mutate(date = ifelse(!is.na(admit_date), admit_date, date)) %>%
+  select(-contains("_date")) %>%
+  mutate(date = floor(date/10000))
+#Change birth_mm_yyyy to dob
+colnames(bios)[3] <- "dob"
+```
+Convertingg grade level to numeric
+```{r, echo=TRUE}
+bios <- bios %>%
+  filter(grade_level!='AD') %>%
+  mutate(grade_level = ifelse(grade_level=='IN', '-2', grade_level)) %>%
+  mutate(grade_level = ifelse(grade_level=='0K', '0', grade_level)) %>%
+  mutate(grade_level = ifelse(grade_level=='PK', '-1', grade_level)) %>%
+  mutate(grade_level = as.numeric(grade_level)) %>%
+  mutate(dob = substr(dob, 4, 7)) %>%
+  mutate(age = year - as.numeric(dob)) %>%
+  select(year, student_id_scram, age, sex, ethnicity, dbn, grade_level, date)
+```
+Compare retention rate(?) of 5 of the best versus 5 of the worse schools
+```{r}
+best_vs_worst <- bios %>%
+  filter(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545' | dbn == '02M460' | dbn == '07X547' | dbn == '14K22' | dbn == '24Q455' | dbn == '08x560') %>%
+  mutate(label = ifelse(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545', "'Good' School", "'Bad' School")) %>%
+  group_by(student_id_scram, label) %>% summarize(count = n()) %>%
+  ggplot(aes(x = count, fill = factor(label))) +
+  geom_bar(position = "dodge") +
+  xlab('Number of years in the system') +
+  ylab('Number of students')
+plot(best_vs_worst)
+
+```
+Age vs. Grade between two schools
+```{r}
+two_schools <- 
+  bios %>% 
+  filter(dbn == '10X696' | dbn == '02M460')  %>%
+  mutate(label = ifelse(dbn == '10X696', "'Good' School", "'Bad' School")) %>%
+  select(year,dbn,label,student_id_scram,grade_level,age)
+two_schools_plot <-
+  two_schools %>%
+  ggplot(aes(x=age, y=grade_level, group = student_id_scram, colour = student_id_scram)) +
+  geom_line(size=1, show.legend=F) +
+  geom_point(size=1, shape=21, fill="white", show.legend=F ) + 
+  facet_wrap(~label)
+plot(two_schools_plot)
+
+#Special case: Student 302122382
+#s82 <- bios %>% filter(student_id_scram == '02122382')
+```
+Age vs. Grade for ten schools. 
+Getting a small sample of a 100 students
+```{r}
+ten_schools <- 
+  bios %>%
+  filter(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545' | dbn == '02M460' | dbn == '07X547' | dbn == '14K22' | dbn == '24Q455' | dbn == '08x560') %>%
+  mutate(label = ifelse(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545',"'Good' School", "'Bad' School"))
+
+set.seed(11)
+tiny_sample_name <- ten_schools %>% select(student_id_scram) %>% unique() %>% sample_n(100)
+tiny_sample <- left_join(tiny_sample_name,ten_schools, by=c("student_id_scram"))
+```
+Plotting 100 student sample
+```{r}
+tiny_sample %>%
+  ggplot(aes(x=age, y=grade_level, group = student_id_scram, colour = student_id_scram)) +
+  geom_line(size=1, show.legend=F) +
+  geom_point(size=1, shape=21, fill="white", show.legend=F ) + 
+  facet_wrap(~label)
+  
+```
+Plotting 100 student sample - based on color
+```{r}
+tiny_sample_lag <- 
+  tiny_sample %>% 
+  group_by(student_id_scram) %>% 
+  mutate(n_age = lead(age)) %>%
+  mutate(n_grade_level = lead(grade_level)) %>%
+  filter(!is.na(n_grade_level),!is.na(n_age))
+
+tiny_sample_lag %>%
+  group_by(age,n_age,grade_level,n_grade_level,label) %>%
+  summarize(Number_of_Students=n())%>%
+  ggplot(aes(age,grade_level)) +
+  geom_segment(aes(x = age, y = grade_level, xend = n_age, yend = n_grade_level,color=Number_of_Students))+
+  scale_colour_gradient(low = 'red', high='blue', guide = "colourbar") +
+  facet_wrap(~label)
+```
+Now based on thickness
+```{r}
+tiny_sample_lag %>%
+  group_by(age,n_age,grade_level,n_grade_level,label) %>%
+  summarize(Number_of_Students=n())%>%
+  ggplot(aes(age,grade_level)) +
+  geom_segment(aes(x = age, y = grade_level, xend = n_age, yend = n_grade_level,size=Number_of_Students))+
+  facet_wrap(~label)
+```
+##New Samples
+Seperating by borough
+```{r}
+bios_by_borough <- bios %>%mutate(borough = substr(dbn,3,3))
+
+set.seed(11)
+borough_sample_name <- bios_by_borough %>% 
+  group_by(student_id_scram) %>%
+  unique() %>%
+  group_by(borough)%>%
+  sample_n(500)
+borough_sample <- left_join(borough_sample_name,bios_by_borough, by=c("student_id_scram", "borough"))
+
+borough_lag <- 
+  bios_by_borough %>%
+  group_by(student_id_scram) %>% 
+  mutate(n_age = lead(age)) %>%
+  mutate(n_grade_level = lead(grade_level)) %>%
+  filter(!is.na(n_grade_level),!is.na(n_age))
+
+borough_lag %>%
+  group_by(age,n_age,grade_level,n_grade_level,borough) %>%
+  summarize(Number_of_Students=n())%>%
+  ggplot(aes(age,grade_level)) +
+  geom_segment(aes(x = age, y = grade_level, xend = n_age, yend = n_grade_level,color=Number_of_Students))+
+  scale_colour_gradient(low = 'red', high='blue', guide = "colourbar") +
+  facet_wrap(~borough)
+```
+Seperating by ethnicity
+```{r}
+bios_by_ethnicity <- bios
+set.seed(11)
+ethnicity_sample_name <- bios_by_ethnicity %>% 
+  select(student_id_scram,ethnicity) %>% 
+  unique() %>% sample_n(500)
+ethnicity_sample <- left_join(ethnicity_sample_name,bios_by_ethnicity, by=c("student_id_scram", "ethnicity"))
+
+ethnicity_lag <- 
+  ethnicity_sample %>% 
+  group_by(student_id_scram) %>% 
+  mutate(n_age = lead(age)) %>%
+  mutate(n_grade_level = lead(grade_level)) %>%
+  filter(!is.na(n_grade_level),!is.na(n_age))
+
+ethnicity_lag %>%
+  group_by(age,n_age,grade_level,n_grade_level,ethnicity) %>%
+  summarize(Number_of_Students=n())%>%
+  ggplot(aes(age,grade_level)) +
+  geom_segment(aes(x = age, y = grade_level, xend = n_age, yend = n_grade_level,color=Number_of_Students))+
+  scale_colour_gradient(low = 'red', high='blue', guide = "colourbar") +
+  facet_wrap(~ethnicity)
+```
+Seperating by gender
+```{r}
+bios_by_gender <- bios
+colnames(bios_by_gender)[4] <- "gender"
+
+set.seed(11)
+gender_sample_name <- bios_by_gender %>% 
+  select(student_id_scram,gender) %>% 
+  unique() %>% sample_n(500)
+gender_sample <- left_join(gender_sample_name,bios_by_gender, by=c("student_id_scram", "gender"))
+
+gender_lag <- 
+  gender_sample %>% 
+  group_by(student_id_scram) %>% 
+  mutate(n_age = lead(age)) %>%
+  mutate(n_grade_level = lead(grade_level)) %>%
+  filter(!is.na(n_grade_level),!is.na(n_age))
+
+gender_lag %>%
+  group_by(age,n_age,grade_level,n_grade_level,gender) %>%
+  summarize(Number_of_Students=n())%>%
+  ggplot(aes(age,grade_level)) +
+  geom_segment(aes(x = age, y = grade_level, xend = n_age, yend = n_grade_level,color=Number_of_Students))+
+  scale_colour_gradient(low = 'red', high='blue', guide = "colourbar") +
+  facet_wrap(~gender)
+```
+
+```{r}
+```

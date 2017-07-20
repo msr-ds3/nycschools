@@ -1,0 +1,71 @@
+---
+title: "0713_playWithHSAPS"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#setting up the necessary libraries
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(scales)
+
+```
+
+## R Markdown
+
+Answering the descriptives using copy paste methods
+
+```{r HSAPS, warnings = FALSE}
+
+setwd('/data/nycdoe/')
+files <- Sys.glob('HSAPS/*.csv')
+df <- read.csv(files[1])
+df[is.na(df)] <- 0
+
+
+#Number of schools each student ranked by round
+df%>% select(student_id_scram, r1_n_choices, r2_n_choices, r3_n_choices) %>%
+  gather('r1_n_choices','r2_n_choices','r3_n_choices', key='round', value='choice') %>%
+  ggplot(aes(x=choice)) +
+  geom_histogram() +
+  facet_wrap(~round, scales="free_y")
+
+#Split this by borough
+df%>% select(borough, r1_n_choices, r2_n_choices, r3_n_choices) %>%
+  gather('r1_n_choices','r2_n_choices','r3_n_choices', key='round', value='choice') %>%
+  ggplot(aes(x=choice)) +
+  geom_histogram() +
+  facet_grid(round~borough, scales="free_y")
+
+#Split by school
+school_choices <- df%>% select(feeder_dbn, r1_n_choices, r2_n_choices, r3_n_choices) %>%
+  gather('r1_n_choices','r2_n_choices','r3_n_choices', key='round', value='choice') 
+
+#Number of applications per round
+
+r1_schools <- df %>% select(student_id_scram, dplyr::contains("r1programcode"))%>% 
+  gather(key = 'r1_rank', value='r1_school', 2:13) %>% 
+  mutate(r1_rank = substr(r1_rank, 14,15))
+r1_schools$r1_rank <- as.numeric(as.character(r1_schools$r1_rank))
+
+r2_schools <- df %>% select(student_id_scram, dplyr::contains("r2programcode")) %>%
+  gather(key = 'r2_rank', value='r2_school', 2:13) %>% 
+  mutate(r2_rank = substr(r2_rank, 14,15))
+r2_schools$r2_rank <- as.numeric(as.character(r2_schools$r2_rank))
+
+r3_schools <- df %>% select(student_id_scram, dplyr::contains("r3programcode")) %>%
+  gather(key = 'r3_rank', value='r3_school',2:13) %>% 
+  mutate(r3_rank = substr(r3_rank, 14,15))
+r3_schools$r3_rank <- as.numeric(as.character(r3_schools$r3_rank))
+
+#Mean position of each school on students lists
+r1_rank_school <- r1_schools %>% group_by(r1_school) %>% summarize(num_rank = n(), mean_rank = mean(r1_rank)) 
+r2_rank_school <- r2_schools %>% group_by(r2_school) %>% summarize(num_rank = n(), mean_rank = mean(r2_rank))
+r3_rank_school <- r3_schools %>% group_by(r3_school) %>% summarize(num_rank = n(), mean_rank = mean(r3_rank))
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
