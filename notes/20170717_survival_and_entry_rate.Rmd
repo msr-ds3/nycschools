@@ -1,0 +1,262 @@
+---
+title: '20170717'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading in data.
+```{r}
+library(tidyverse)
+setwd('/data/nycdoe/')
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+bios <- map_df(files, read_csv_with_year) %>%
+  mutate(grade_level=ifelse(grade_level=="0K", 0, 
+                            ifelse(grade_level=="PK", -1, 
+                                   as.numeric(grade_level))))
+```
+
+## Per-grade "survival"
+```{r}
+(df <- 
+    bios %>%
+    #filter(student_id_scram==420002000) %>%
+    #arrange(student_id_scram) %>%
+    select(student_id_scram, year, grade_level) %>%
+    mutate(grade_level=as.numeric(grade_level)) %>%
+    group_by(student_id_scram) %>%
+    arrange(year) %>%
+    mutate(did_continue=ifelse(!is.na(lead(grade_level)) & grade_level == lead(grade_level) - 1, 1, 0)) )
+  
+exit_rates <- df %>%
+    group_by(year, grade_level) %>%
+    #distinct(year, student_id_scram, did_continue) %>%
+    #group_by(student_id_scram, grade_level) %>%
+    summarise(continuing_students=sum(did_continue), total_students=n(), exit_rate=1-continuing_students/total_students)
+```
+
+6 years with the lowest exit rates
+```{r}
+exit_rates %>%
+  arrange(exit_rate) %>%
+  head()
+```
+
+6 years with the highest exit rates
+```{r}
+exit_rates %>%
+  arrange(desc(exit_rate)) %>%
+  filter(grade_level!=12, year!=2015) %>%
+  head()
+```
+
+##Per-grade "survival" by school
+```{r}
+(df_with_schools <- 
+    bios %>%
+    #filter(student_id_scram==420002000) %>%
+    #arrange(student_id_scram) %>%
+    select(student_id_scram, year, grade_level, dbn) %>%
+    mutate(grade_level=as.numeric(grade_level)) %>%
+    group_by(student_id_scram) %>%
+    arrange(year) %>%
+    mutate(did_continue=ifelse(!is.na(lead(grade_level)) & grade_level == lead(grade_level) - 1, 1, 0)) )
+  
+exit_rates_by_school <- 
+  df_with_schools %>%
+    group_by(dbn, year, grade_level) %>%
+    #distinct(year, student_id_scram, did_continue) %>%
+    #group_by(student_id_scram, grade_level) %>%
+    summarise(continuing_students=sum(did_continue), total_students=n(), exit_rate=1-continuing_students/total_students)
+```
+
+6 schools with the lowest exit rates per year/grade
+```{r}
+exit_rates_by_school %>%
+  arrange(exit_rate) %>%
+  head()
+```
+
+6 schools with the highest exit rates per year/grade
+```{r}
+exit_rates_by_school %>%
+  arrange(desc(exit_rate)) %>%
+  filter(grade_level!=12, year!=2015) %>%
+  head()
+```
+
+6 schools with the lowest entrance rates
+```{r}
+df_with_schools %>%
+  group_by(dbn) %>%
+  #distinct(year, student_id_scram, did_continue) %>%
+  #group_by(student_id_scram, grade_level) %>%
+  summarise(continuing_students=sum(did_continue), total_students=n(), exit_rate=1-continuing_students/total_students) %>%
+  arrange(exit_rate) %>%
+  head()
+```
+
+6 schools with the highest entrance rates
+```{r}
+df_with_schools %>%
+  group_by(dbn) %>%
+  #distinct(year, student_id_scram, did_continue) %>%
+  #group_by(student_id_scram, grade_level) %>%
+  filter(grade_level!=12, year!=2015) %>%
+  summarise(continuing_students=sum(did_continue), total_students=n(), exit_rate=1-continuing_students/total_students) %>%
+  arrange(desc(exit_rate)) %>%
+  head()
+```
+
+## How many students enter in each grade
+```{r}
+(df_entered <- 
+    bios %>%
+    #filter(student_id_scram==420002000) %>%
+    #arrange(student_id_scram) %>%
+    select(student_id_scram, year, grade_level) %>%
+    mutate(grade_level=as.numeric(grade_level)) %>%
+    group_by(student_id_scram) %>%
+    arrange(year) %>%
+    mutate(did_enter=ifelse(is.na(lag(grade_level)) | grade_level != lag(grade_level) + 1, 1, 0)) )
+  
+entrance_rates <- 
+  df_entered %>%
+    group_by(year, grade_level) %>%
+    #distinct(year, student_id_scram, did_continue) %>%
+    #group_by(student_id_scram, grade_level) %>%
+    summarise(entering_students=sum(did_enter), total_students=n(), entrance_rate=entering_students/total_students)
+
+entrance_rates
+```
+
+6 years with the lowest entrance rates
+```{r}
+entrance_rates %>%
+  arrange(entrance_rate) %>%
+  head()
+```
+
+6 years with the highest entrance rates (besides 1st grade)
+```{r}
+entrance_rates %>%
+  arrange(desc(entrance_rate)) %>%
+  filter(grade_level!=-1, year!=2005) %>%
+  head()
+```
+
+##How many students enter in each grade by school
+```{r}
+(df_entered_with_schools <- 
+    bios %>%
+    #filter(student_id_scram==420002000) %>%
+    #arrange(student_id_scram) %>%
+    select(student_id_scram, year, grade_level, dbn) %>%
+    mutate(grade_level=as.numeric(grade_level)) %>%
+    group_by(student_id_scram) %>%
+    arrange(year) %>%
+    mutate(did_enter=ifelse(is.na(lag(grade_level)) | grade_level != lag(grade_level) + 1, 1, 0)) )
+  
+entrance_rates_by_school <- 
+  df_entered_with_schools %>%
+    group_by(dbn, year, grade_level) %>%
+    #distinct(year, student_id_scram, did_continue) %>%
+    #group_by(student_id_scram, grade_level) %>%
+    summarise(entering_students=sum(did_enter), total_students=n(), entrance_rate=entering_students/total_students)
+
+entrance_rates_by_school
+```
+
+6 schools with the lowest entrance rates by year/grade
+```{r}
+entrance_rates_by_school %>%
+  arrange(entrance_rate) %>%
+  head()
+```
+
+6 schools with the highest entrance rates by year/grade (except 1st grade)
+```{r}
+entrance_rates_by_school %>%
+  arrange(desc(entrance_rate)) %>%
+  filter(grade_level!=-1, year!=2005) %>%
+  head()
+```
+
+6 schools with the lowest entrance rates
+```{r}
+df_entered_with_schools %>%
+  group_by(dbn) %>%
+  #distinct(year, student_id_scram, did_continue) %>%
+  #group_by(student_id_scram, grade_level) %>%
+  summarise(entering_students=sum(did_enter), total_students=n(), entrance_rate=entering_students/total_students)  %>%
+  arrange(entrance_rate) %>%
+  head()
+```
+
+6 schools with the highest entrance rates
+```{r}
+df_entered_with_schools %>%
+  group_by(dbn) %>%
+  #distinct(year, student_id_scram, did_continue) %>%
+  #group_by(student_id_scram, grade_level) %>%
+  filter(grade_level!=-1, year!=2005) %>%
+  summarise(entering_students=sum(did_enter), total_students=n(), entrance_rate=entering_students/total_students)  %>%
+  arrange(desc(entrance_rate)) %>%
+  head()
+```
+
+## "True survivors" - what fraction of students who started in grade K graduate high school 12 years later?
+
+```{r}
+(entries_per_student <-
+  df %>%
+  group_by(student_id_scram) %>%
+  summarise(count=n()))
+
+entries_per_student %>%
+  group_by(count) %>%
+  count()
+```
+
+Just for high school.
+
+Question - since the data set ends at 2015, the 9th, 10th, and 11th graders are considered as only staying 1 year, even though they might have stayed longer. Filtering out everything after 2012 (the last year for which we have data for each student for 4 years from that point) doesn't solve the problem. How can we stagger the filters, so that in 2015 we only take the 12th graders, 2014 we take 11th and 12th, and 2013 we take 10th 11th and 12th?
+```{r}
+# (entries_per_student <-
+#   df %>%
+#   group_by(student_id_scram) %>%
+#   filter(grade_level>8) )
+
+(entries_per_student <-
+    df %>%
+    group_by(student_id_scram) %>%
+    filter(ifelse(year==2013, grade_level>9, 
+                  ifelse(year==2014, grade_level>10,
+                         ifelse(year==2015, grade_level>11, grade_level>8)))))
+
+# (entries_per_student <-
+#   entries_per_student %>%
+#   filter(grade_level>8) %>%
+#   #filter(year<2013) %>%
+#   summarise(count=sum(did_continue)) )
+
+entries_per_student %>%
+  summarise(count=sum(did_continue)) %>%
+  summarise(num_survivors=sum(count==3), perc_survivors=num_survivors/n())
+```
+
+
+
+
+
+
