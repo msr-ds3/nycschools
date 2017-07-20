@@ -1,0 +1,204 @@
+---
+title: "School Demand/Popularity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(scales)
+
+files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+
+read_students_with_choices <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character()))
+  df$year <- year
+  df <- df %>% 
+    select(student_id_scram, contains("programcode"), year)
+}
+
+tidy_df <-
+  map_df(files, read_students_with_choices) %>%
+  filter(!is.na(student_id_scram)) %>%
+  gather("round_choice", "school", 2:37) %>%
+  mutate(round = substring(round_choice, 2,2), 
+         choice = substring(round_choice, 14)) %>%
+  select(-round_choice) %>%
+  mutate(student_id_scram = as.factor(student_id_scram),
+         school = as.factor(school))
+```
+
+How many people ranked each school?
+```{r}
+num_apps_per_school <-
+  tidy_df %>%
+  group_by(school) %>%
+  summarise(num_apps=n())
+
+head(num_apps_per_school)
+```
+
+```{r}
+num_apps_per_school_w_round <-
+  tidy_df %>%
+  group_by(school, round) %>%
+  summarise(num_apps=n())
+head(num_apps_per_school_w_round)
+```
+# Plots
+
+## Top 20 most popular schools - number of applications
+
+```{r}
+num_apps_per_school_w_round %>%
+  filter(!is.na(school)) %>%
+  arrange(desc(num_apps)) %>%
+  group_by(round) %>%
+  head(20) %>%
+  arrange(num_apps) %>%
+  ggplot(aes(x=num_apps, y=factor(school, levels=unique(as.character(school)) ))) +
+  geom_point()
+```
+
+## Distribution of num apps over all schools
+
+```{r}
+num_apps_per_school_w_round %>%
+  filter(!is.na(school)) %>%
+  group_by(num_apps, round) %>%
+  summarise(count=n()) %>%
+  ggplot(aes(x=num_apps, y=count)) +
+  geom_line() +
+  scale_x_log10(label=comma) +
+  facet_wrap(~round)
+```
+
+```{r}
+num_apps_per_school_w_round %>%
+  filter(!is.na(school)) %>%
+  group_by(num_apps, round) %>%
+  summarise(count=n()) %>%
+  ggplot(aes(x=num_apps)) +
+  geom_density(color = "purple", fill="purple", alpha=0.2) +
+  facet_wrap(~round, scale="free_y")
+```
+
+## Where are schools typically listed in the rankings?
+
+Showing the top 100 schools with the most applications
+
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T), se = sd(choice, na.rm=T)/sqrt(n()), num_apps=n()) %>%
+  #arrange(se, avg_rank) %>%
+  arrange(desc(num_apps)) %>%
+  head(100) %>%
+  ggplot(aes(y=avg_rank, x=factor(school, levels=unique(as.character(school))), color=num_apps)) +
+  geom_point() +
+  scale_colour_gradient(low = "red", high = "purple") +
+  geom_pointrange(aes(ymin=avg_rank-se, ymax=avg_rank+se)) +
+  coord_flip()
+```
+
+Showing all schools
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T), se = sd(choice, na.rm=T)/sqrt(n()), num_apps=n()) %>%
+  arrange(avg_rank) %>%
+  ggplot(aes(y=avg_rank, x=factor(school, levels=unique(as.character(school))), color=num_apps)) +
+  geom_point(alpha=0.5) +
+  scale_colour_gradient(low = "red", high = "purple") +
+  geom_pointrange(aes(ymin=avg_rank-se, ymax=avg_rank+se)) +
+  coord_flip() +
+  facet_wrap(~round)
+```
+
+Switched out school names for popularity (schools with highest avg rank -> school_pop=1)
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T), se = sd(choice, na.rm=T)/sqrt(n()), num_apps=n()) %>%
+  arrange(avg_rank) %>%
+  ungroup() %>%
+  #changed school_popularity based on num_apps instead of average rank
+  mutate(school_pop=rank(desc(num_apps))) %>%
+  ggplot(aes(y=avg_rank, x=school_pop, color=num_apps)) +
+  geom_point() +
+  scale_color_gradientn(colors = rainbow(4)) +
+  geom_pointrange(aes(ymin=avg_rank-se, ymax=avg_rank+se)) +
+  facet_wrap(~round, ncol=1) + 
+  scale_x_log10()
+```
+
+Same thing with geom_smooth()
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T), se = sd(choice, na.rm=T)/sqrt(n()), num_apps=n()) %>%
+  arrange(avg_rank) %>%
+  ungroup() %>%
+  mutate(school_pop=row_number()) %>%
+  ggplot(aes(y=avg_rank, x=school_pop)) +
+  geom_smooth() +
+  coord_flip() +
+  facet_wrap(~round)
+```
+
+Distribution of mean ranks by school
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T)) %>%
+  ggplot(aes(x=avg_rank)) +
+  geom_density(color="blue", fill="blue", alpha=0.2) +
+  facet_wrap(~round)
+```
+
+Distribution of mean ranks vs number of applications
+(Each school is one point)
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T), count=n()) %>%
+  ggplot(aes(x=avg_rank, y=count)) +
+  geom_point() +
+  facet_wrap(~round)
+```
+
+```{r}
+tidy_df %>%
+  filter(!is.na(school)) %>%
+  group_by(school, round) %>%
+  mutate(choice=as.numeric(choice)) %>%
+  summarise(avg_rank=mean(choice, na.rm=T), count=n()) %>%
+  ggplot(aes(x=avg_rank, y=count)) +
+  geom_area(fill="orange", alpha=0.7) +
+  facet_wrap(~round)
+```
+
+
+
+
+
+
+
+
