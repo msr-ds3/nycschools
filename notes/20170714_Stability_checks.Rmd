@@ -1,0 +1,267 @@
+---
+title: "Stability Checks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+bios <- map_df(files, read_csv_with_year)
+
+```
+###tidy the data
+``` {R }
+stable_data <- bios %>%
+  select(student_id_scram, birth_mm_yyyy,pob_code, sex, home_lang, ethnicity, poverty)
+
+```
+
+#Gender
+##find na data
+```{R }
+#there is one person whose gender is na
+stable_data %>%
+  filter(is.na(sex) )
+```
+###plot gender
+```{R}
+#plot genders (you dont see the really small number of na)
+stable_data %>%
+  group_by(student_id_scram) %>%
+  summarise(numberDistinctGender = n_distinct(sex))%>%
+  ggplot(aes(x = numberDistinctGender)) + geom_histogram(stat = "count") +
+  scale_x_discrete()
+```
+###table of counts
+```{R}
+#see numbers in frame
+counts<- stable_data %>%
+  group_by(student_id_scram) %>%
+  summarise(numberDistinctGender = n_distinct(sex)) %>%
+  group_by(numberDistinctGender) %>%
+  summarise(count = n())
+```
+###Percent of students whose gender changes
+```{R}
+#calculate percent of students for which gender changes ('unstable')
+countGenderSwitch <- counts %>% 
+  filter(numberDistinctGender == 2) %>%
+  select(count)
+
+get_total_people_with_gender <- sum(counts$count)
+
+#get percent of students that change genders
+fraction_change_gender <- (countGenderSwitch/get_total_people_with_gender)*100
+fraction_change_gender
+
+#it's less than 1% (~.38%)
+
+```
+
+```{R}
+stable_data %>% 
+  #filter(student_id_scram == 81002000) %>%
+  group_by(student_id_scram) %>% 
+  mutate(countGenderChanges = cumsum(ifelse(sex != lag(sex) | is.na(lag(sex)), 1, 0))) %>%
+  summarise(numChanges = max(countGenderChanges))
+
+
+
+```
+#Place of Birth
+
+##find na's
+```{R }
+
+stable_data %>%
+  filter(is.na(pob_code))%>%
+  group_by(student_id_scram) %>%
+  summarize()
+
+```
+
+```{R}
+countPob <- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctpob=n_distinct(pob_code))%>%
+  group_by(distinctpob)%>%
+  summarise(count = n()) #%>%
+  #ggplot(aes(x = distinctpob)) + 
+  #geom_histogram(stat = "count") + scale_x_discrete()
+countPob
+
+```
+
+```{R}
+#get percent of students whose pob changes
+(countPob$count / sum(countPob))*100
+```
+
+
+##Ethnicity
+```{R}
+#no student with null ethnicity or na
+stable_data %>%
+  filter(ethnicity=='NULL')%>%
+  group_by(student_id_scram) %>%
+  summarize()
+
+```
+
+```{R}
+countEthnicity<- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctethnicity=n_distinct(ethnicity))%>%
+  group_by(distinctethnicity)%>%
+  summarise(count = n())
+
+countEthnicity
+```
+#plot ethnicity
+```{R}
+stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctethnicity=n_distinct(ethnicity))%>%
+  ggplot(aes(x = distinctethnicity)) + geom_histogram(stat = "count") +   scale_x_discrete()
+```
+
+#percent with multiple ethnicities (What ethnicities are changed?)
+```{R}
+percentages <- (countEthnicity$count/sum(countEthnicity))*100
+percentages
+
+```
+
+##Home Language
+```{R}
+#students with na in any file (not na accross the board)
+stable_data %>%
+  filter(is.na(home_lang))%>%
+  group_by(student_id_scram) %>%
+  summarize()
+```
+
+```{R}
+
+countHomeLanguage<- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctLang=n_distinct(home_lang))%>%
+  group_by(distinctLang)%>%
+  summarise(count = n())
+
+countHomeLanguage
+```
+##count of those who changed home language
+```{R}
+countHomeLanguageRm<- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctLang=n_distinct(home_lang, na.rm = TRUE))%>%
+  group_by(distinctLang)%>%
+  summarise(count = n())
+
+countHomeLanguageRm
+```
+##percent who changed home language
+```{R}
+(countHomeLanguage$count/sum(countHomeLanguage))*100
+
+```
+
+##Poverty 
+```{R}
+countPoverty<- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctPov=n_distinct(poverty))%>%
+  group_by(distinctPov)%>%
+  summarise(count = n()) 
+
+countPoverty
+```
+plot it
+```{R}
+stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctPov=n_distinct(poverty))%>%
+    ggplot(aes(x = distinctPov)) + geom_histogram(stat = "count") +
+    scale_x_discrete(labels = c(0, 1))
+
+(countPoverty$count/sum(countPoverty))*100
+
+```
+#no na birthdays
+```{R}
+#no one had na birthday (!yeah that should mean a pizza)
+stable_data %>%
+  filter(is.na(birth_mm_yyyy))%>%
+  group_by(student_id_scram)%>%
+  summarise()
+```
+##does Dob change?
+```{R}
+countDob<- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(distinctDob=n_distinct(birth_mm_yyyy))%>%
+  group_by(distinctDob)%>%
+  summarise(count = n()) 
+
+countDob
+```
+##percent with dob changes
+```{R}
+(countDob$count/sum(countDob))*100
+```
+##see number times gender changes per student
+```{R}
+countChangesInGender<- stable_data %>%
+  group_by(student_id_scram)%>%
+  summarise(genChange=n_distinct(birth_mm_yyyy))%>%
+  group_by(distinctDob)%>%
+  summarise(count = n()) 
+
+
+```
+
+```{R HSAP stuff}
+library(ggplot2)
+library(readr)
+library(tidyverse)
+setwd('/data/nycdoe/')
+
+files_HSAPS <- Sys.glob('HSAPS/*.csv')
+
+read_HSAP_Program_codes <- function(filename) {
+  year <- as.numeric(substr(filename, 7, 10))
+  print(year)
+  df <- read_csv(filename, col_types = cols(student_id_scram  = col_character()))
+  df$year <- year
+  #df <- select(df, year, student_id_scram, contains("ProgramCode"))
+}
+HSAP_Choices <- map_df(files_HSAPS, read_HSAP_Program_codes)
+
+tidy <- HSAP_Choices %>%
+  gather(key = "round", value = "school", 3:38) %>%
+  mutate(rank= as.integer(substr(round,14,length(round)))) %>%
+  mutate(round= as.integer(substr(round,2,2))) 
+
+
+```
+```{R}
+df <- HSAP_Choices %>% group_by(student_id_scram) %>% summarise(count = n())
+df %>% group_by(count)%>% summarise(nextcount =n())
+
+
+```
+
+
+

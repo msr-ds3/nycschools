@@ -1,0 +1,209 @@
+---
+title: "Where do Students live?"
+output: html_document
+---
+###The catch: We spent a lot of time on the map and did not figure out what to remove, what is messy data etc..
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+#library(tigris)
+library(dplyr)
+library(leaflet)
+library(sp)
+library(ggmap)
+library(maptools)
+library(broom)
+library(httr)
+library(rgdal)
+
+#load tracts from tigris (Jake's workaround)
+load('/data/nycdoe/nyc_tracts.Rdata')
+
+files <- Sys.glob('/data/nycdoe/Zoned DBNs/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(res_zip_cde = col_character(), census_block  = col_character(), census_tract = col_character()))
+  df$year <- year
+  df
+}
+
+zoneData <- map_df(files, read_csv_with_year)
+
+zoneData %>% head(10)
+```
+check that because you zone for one place in em school, doesn't mean all people who zoned to that em school will zone to same mid school
+
+We took one zone and proved that you cannot make that assumption
+```{R}
+zoneData %>% filter(zoned_elm_dbn == "01M015") %>% group_by(zoned_mid_dbn) %>% summarise(count = n())
+```
+
+#Data is clean (each year has each student once)
+```{R}
+count_df <- zoneData %>% group_by(year, student_id_scram) %>% summarise(count = n()) %>%
+  group_by(count)%>% summarise()
+
+count_df
+```
+see na's in the data
+```{R} 
+zoneData %>% 
+  filter(is.na(zoned_elm_dbn)) %>% 
+  group_by(year) %>% 
+  summarise(num_nas = n())
+```
+#count students who are zoned to same elementary school 
+```{R}
+zoneData %>% 
+  group_by(zoned_elm_dbn) %>% 
+  tally
+
+```
+
+Use census tracts to group students by area
+```{R}
+tracts <- zoneData %>% 
+  group_by(census_tract) %>% 
+  summarise(numStudents =n())
+
+tracts%>% head()
+```
+#plot count of students in their tracts (all years) --Where they LIVE
+```{R}
+tracts_map <- merge(nyc_tracts, tracts, by.x = "TRACTCE", by.y ="census_tract")
+
+#plot(nyc_tracts)
+leaflet(nyc_tracts) %>%
+  addTiles() %>% 
+  addPolygons(popup = ~paste("Tract:", TRACTCE)) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-73.98, 40.75, zoom = 13)
+```
+
+```{R}
+leaflet(tracts_map) %>%
+  addTiles() %>% 
+  addPolygons(popup = ~paste("Num students:", numStudents)) %>%
+  addProviderTiles("CartoDB.Positron")%>%
+  setView(-73.98, 40.75, zoom = 13)
+```
+number of each zips in our dataset
+```{R}
+zoneData%>% 
+  group_by(res_zip_cde) %>% 
+  summarise(count = n())
+
+```
+
+```{R}
+
+#r <- GET("http://www2.census.gov/geo/tiger/TIGER2010DP1/County_2010Census_DP1.zip")
+#r<- GET("https://data.cityofnewyork.us/download/hkaz-iizd/application%2Fzip")
+
+
+#r<- GET("https://data.cityofnewyork.us/api/geospatial/mshx-yvwq?method=export&format=GeoJSON")
+#dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
+
+```
+Get elementary data from NYC open data
+```{R}
+#elementary data only
+r<- GET("https://data.cityofnewyork.us/api/geospatial/cq6p-iwiy?method=export&format=GeoJSON")
+dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
+#summary(dbns)
+
+#dbns@data$dbn
+
+zones_df <- tidy(dbns)
+
+#ggplot() + 
+ # geom_polygon(data=zones_df, aes(x=long, y=lat, group=group), alpha = .25, colour = "black", fill = NA)
+nyc_map <- get_map(location = c(lon = -74.00, lat = 40.71), maptype = "terrain", zoom = 11)
+
+#ggmap(nyc_map) + 
+ # geom_polygon(data=zones_df, aes(x=long, y=lat, group=group), alpha = .25, colour = "black", fill = NA)
+```
+#Plot this data (includes all years)
+```{R}
+leaflet(dbns) %>%
+  addTiles() %>% 
+  addPolygons(popup = ~paste("School DBN:", dbn))%>%
+  addProviderTiles("CartoDB.Positron")%>%
+  setView(-73.98, 40.75, zoom = 13)
+
+#zone_dbn <- zoneData %>% group_by(zoned_elm_dbn) %>% summarise(count = n())
+```
+
+#get count for specific year. This is year of shape file
+```{R}
+zone_dbn <- zoneData %>% 
+  filter(year ==2015) %>% 
+  group_by(zoned_elm_dbn) %>% 
+  summarise(count = n())
+
+#remove na counts
+zone_dbn <- zone_dbn %>% 
+  filter(!is.na(count))
+
+map_data <- merge(dbns, zone_dbn, by.x = "dbn", by.y ="zoned_elm_dbn")
+
+pal <- colorNumeric(palette = "RdBu",
+                    domain = range(map_data@data$count, na.rm=T))
+
+leaflet(map_data) %>%
+  addTiles() %>% 
+  addPolygons(fillColor = ~pal(count), popup = ~paste("Num students in 2015:", as.character(count)))%>% 
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-73.98, 40.75, zoom = 13)
+
+```
+#Use zip Codes to map data 
+## This is across ALL YEARS!
+```{R}
+#filter out na zips
+zone_zip <-zoneData %>% 
+  mutate(res_zip_cde = as.integer(res_zip_cde)) %>% 
+  filter(!is.na(res_zip_cde)) %>%
+  select(student_id_scram, res_zip_cde, contains("zoned")) %>%
+  group_by(res_zip_cde) %>%
+  summarise(numStudents = n())
+
+
+testZip  <- GET("http://catalog.civicdashboards.com/dataset/11fd957a-8885-42ef-aa49-5c879ec93fac/resource/28377e88-8a50-428f-807c-40ba1f09159b/download/nyc-zip-code-tabulation-areas-polygons.geojson")
+zips <- readOGR(content(testZip,'text'), 'OGRGeoJSON', verbose = F)
+#summary(zips)
+
+#zips_df <- tidy(zips)
+
+map_data_zip <- merge(zips, zone_zip, by.y = "res_zip_cde", by.x ="postalCode")
+
+leaflet(map_data_zip) %>%
+  addTiles() %>% 
+  addPolygons(popup = ~paste("Number Students", as.character(numStudents)))%>% 
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-73.98, 40.75, zoom = 13)
+
+nyc_map <- get_map(location = c(lon = -74.00, lat = 40.71), maptype = "terrain", zoom = 11)
+
+```
+
+#Further work
+```{R}
+#dbnBioData <- bios %>%
+ # select(student_id_scram, dbn, grade_level, year)
+
+# dbnBioData <-  rename(dbnBioData, BioDbn = dbn)
+ 
+ #merged <- merge(dbnBioData, zoneData, by = "student_id_scram" )
+```
+
+```{R}
+
+write.table(tracts, file = "tracts.txt", sep = "\t" , col.names = TRUE)
+
+```
+
