@@ -1014,3 +1014,50 @@ final_df_2 %>%
   labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
   facet_wrap(~disability)
 ```
+
+
+## Updated visualizations (from 20170718_student_enter_exit_rates.Rmd)
+
+```{r}
+new_df <-
+  df %>%
+  left_join(tidy_grad, by=c('student_id_scram')) %>%
+  filter(!(grade_level==12&is.na(graduated)))
+
+continuation_rates <- 
+  new_df %>%
+  filter(grade_level!=-2) %>%
+  mutate(did_continue=ifelse(grade_level==12, graduated, did_continue)) %>%
+  group_by(year, grade_level) %>%
+  #distinct(year, student_id_scram, did_continue) %>%
+  #group_by(student_id_scram, grade_level) %>%
+  summarise(continuing_students=sum(did_continue), total_students=n(), continuation_rate=continuing_students/total_students)
+
+continuation_rates %>%
+  group_by(grade_level) %>%
+  summarise(avg_continuation=mean(continuation_rate), se=sd(continuation_rate)/n()) %>%
+  ggplot(aes(x=grade_level, y=avg_continuation)) +
+  scale_x_continuous(breaks=seq(-1, 12, 1), labels=c('-1'='Pre-K', '0'='K', '1'='1', '2'='2', '3'='3', '4'='4', '5'='5', '6'='6', '7'='7', '8'='8', '9'='9', '10'='10', '11'='11', '12'='12'), expand=c(0, 0.75)) +
+  scale_y_continuous(labels = percent) +
+  geom_point() +
+  geom_line() +
+  labs(x="Grade Level", y="Average Percent Continuation", title="Year-to-Year Continuation") +
+  geom_errorbar(aes(ymin = avg_continuation-se, ymax = avg_continuation+se))
+```
+
+```{r}
+continuation_rates %>%
+  filter(year!=2015) %>%
+  mutate(grade_level=as.character(grade_level)) %>%
+  mutate(grade_level=ifelse(grade_level=='-1','Pre-K',
+                            ifelse(grade_level=='0', 'K',
+                                   grade_level))) %>%
+  ggplot(aes(x=year, y=continuation_rate, color=factor(grade_level, levels=c('Pre-K', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12')))) +
+  geom_point() +
+  geom_line() +
+  labs(x="Academic Year", y="Percent Continuation", title="Trends in Continuation Rates by Grade Level", color="Grade Level") +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(2005, 2014, 1), expand=c(0, 1)) +
+  geom_dl(aes(label = as.factor(grade_level)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.75)) 
+
+```
