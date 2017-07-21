@@ -133,14 +133,13 @@ tidy_df %>%
   summarise(avg_rank=mean(choice, na.rm=T), se = sd(choice, na.rm=T)/sqrt(n()), num_apps=n()) %>%
   arrange(avg_rank) %>%
   ungroup() %>%
-  #changed school_popularity based on num_apps instead of average rank
-  mutate(school_pop=rank(desc(num_apps))) %>%
+  mutate(school_pop=row_number()) %>%
   ggplot(aes(y=avg_rank, x=school_pop, color=num_apps)) +
   geom_point() +
   scale_color_gradientn(colors = rainbow(4)) +
   geom_pointrange(aes(ymin=avg_rank-se, ymax=avg_rank+se)) +
-  facet_wrap(~round, ncol=1) + 
-  scale_x_log10()
+  coord_flip() +
+  facet_wrap(~round)
 ```
 
 Same thing with geom_smooth()
