@@ -1,0 +1,158 @@
+---
+Author: David and Keri
+title: '20170717'
+output: html_document
+---
+
+Setting up. Function to read in multiple files, selecting:
+Year, Student ID, DBN, Grade_Level, and Date
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, dbn, grade_level, contains("date"))
+}
+
+```
+Calling in Data
+```{r using bios df}
+setwd('/data/nycdoe/')
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+bios <- map_df(files, read_csv_with_year)
+```
+#Some Weird Stuff noting
+```{r using bios df}
+bios %>%
+  filter(grade_level=='PK') %>%
+  group_by(year) %>%
+  count()
+bios %>%
+  filter(grade_level=='0K') %>%
+  group_by(year) %>%
+  count()
+bios %>%
+  filter(grade_level=='IN') %>%
+  group_by(year) %>%
+  count()
+bios %>%
+  filter(grade_level=='AD') %>%
+  group_by(year) %>%
+  count()
+```
+
+#Some Weird Stuff noting
+```{r using bios df}
+bios %>%
+  group_by(student_id_scram) %>%
+  count() %>%
+  arrange(n) %>%
+  head()
+```
+Shaping the Data Frame
+
+```{r pressure, echo=TRUE}
+bios <- bios %>%
+  mutate(date = ifelse(!is.na(admit_date), admit_date, date)) %>%
+  select(-contains("_date"))
+
+#fix this later
+bios <- bios %>% mutate(date= floor(date/10000))
+```
+Convertingg grade level to numeric
+```{r, echo=TRUE}
+bios <- bios %>%
+  mutate(grade_level = ifelse(grade_level=='IN', '-2', grade_level)) %>%
+  mutate(grade_level = ifelse(grade_level=='0K', '0', grade_level)) %>%
+  mutate(grade_level = ifelse(grade_level=='PK', '-1', grade_level)) %>%
+  mutate(grade_level = as.numeric(grade_level))
+
+bios <- bios %>%
+  filter(is.na(grade_level))
+```
+Getting date entered, date exited, elementary admit date, high school admit date
+```{r, echo=TRUE}
+bios_when_entered <-
+  bios %>%
+  group_by(student_id_scram) %>%
+  mutate(date_entered = ifelse(date==min(date), 1, 0 ), date_exit = ifelse(year == max(year), 1, 0 ) , 
+         elementary = ifelse(grade_level<6 & date== min(date),1,0))
+bios_when_entered %>% head(10)
+```
+Getting high school admit date
+```{r, echo=TRUE}
+bios_highchool <-
+  bios %>%
+  filter(grade_level > 8) %>%
+  group_by(student_id_scram) %>%
+  mutate(high = ifelse(date == min(date), 1, 0)) %>%
+  select(year, date, student_id_scram, high)
+bios_highchool %>% head(10)
+```
+Getting middle achool admit date
+```{r, echo=TRUE}
+bios_middleschool <-
+  bios %>%
+  filter(grade_level > 5,grade_level< 9) %>%
+  group_by(student_id_scram) %>%
+  mutate(middle = ifelse(date == min(date),1,0)) %>%
+  select(year, date, student_id_scram, middle)
+bios_middleschool %>% head(10)
+
+```
+joining middle school and high school data on to the main datafram
+```{r, echo=TRUE}
+
+bios_all <- left_join(bios_when_entered, bios_middleschool, by = c("year","student_id_scram","date"))
+bios_all <- left_join(bios_all, bios_highchool, by = c("year", "student_id_scram","date"))
+bios_all %>% head(10)
+
+```
+Converting NA to 0 for a binary column
+```{r, echo=TRUE}
+bios_all <- bios_all %>%
+  mutate(middle = ifelse(is.na(middle),0,1)) %>%
+  mutate(high = ifelse(is.na(high),0,1))
+bios_all %>% head(10)
+#Example with a few random students
+bios_all %>% filter(student_id_scram == 840002100)
+bios_all %>% filter(student_id_scram == 644002000)
+bios_all %>% filter(student_id_scram == 420002000) 
+
+```
+Looking for students who appear in system for 10+ years
+```{r, echo=TRUE}
+bios_all %>%
+  group_by(student_id_scram) %>%
+  count() %>%
+  filter(n>=10) %>%
+  arrange(student_id_scram) %>%
+  head(50)
+#Note: find students who appear for 10 years
+#find students in low profile/high profile schools
+```
+Looking at 5 students who are in system for 11 years
+```{r, echo=TRUE}
+bios_all %>% filter(student_id_scram == 100002032)
+bios_all %>% filter(student_id_scram == 100012130)
+bios_all %>% filter(student_id_scram == 100012639) 
+bios_all %>% filter(student_id_scram == 100012899)
+bios_all %>% filter(student_id_scram == 10002611) 
+
+```
+Keri trying to spread data frame
+```{r, echo=TRUE}
+#spread_bios <-
+#  bios %>% 
+#  group_by(student_id_scram) %>% 
+#  spread(year, grade_level)
+```
+ 
