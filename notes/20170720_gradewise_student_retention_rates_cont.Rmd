@@ -1,0 +1,1063 @@
+---
+title: '20170719'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading in data.
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(scales)
+library(directlabels)
+library(dplyr)
+
+files <- Sys.glob('/data/nycdoe/Grad/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(district_code=col_number(),
+                                            school_resp_code=col_character(),
+                                            dbn=col_character(),
+                                            school_name=col_character()))
+  df$year <- year
+  df
+}
+
+grad <- map_df(files, read_csv_with_year)
+
+grad %>%
+  arrange(student_id_scram)%>%
+  select(student_id_scram, membership_desc, class_of) %>%
+  group_by(student_id_scram)%>%
+  dplyr::summarise(count=n())%>%
+  filter(count==1)
+```
+
+Is the 'graduated' bit consistent for each student?
+```{r}
+consistency_df <- 
+  grad %>%
+  group_by(student_id_scram) %>%
+  summarise(is_consistent=length(unique(graduated))==1)
+
+consistency_df %>%
+  summarise(frac_consistent=mean(is_consistent))
+
+(non_consistent_students <-
+  grad %>%
+  left_join(consistency_df, by=c("student_id_scram")) %>%
+  filter(is_consistent==F) %>%
+  select(student_id_scram, membership_desc, class_of, graduated) %>%
+  arrange(student_id_scram) )
+
+(consistent_students <-
+  grad %>%
+  left_join(consistency_df, by=c("student_id_scram")) %>%
+  filter(is_consistent==T) %>%
+  select(student_id_scram, membership_desc, class_of, graduated) %>%
+  arrange(student_id_scram) )
+```
+89% of students have a consistent value for {r graduated}. For those students, we are assuming that the first (earliest) cohort listed is their cohort. For the other students, we are assuming that the first (earliest) cohort listed with a 1 for {r graduated} is their cohort.
+
+
+```{r}
+tidy_grad <-
+  grad %>%
+  group_by(student_id_scram) %>%
+  summarise(graduated=max(graduated))
+```
+
+Loading in June Bios data (see 20170718.Rmd in Ilana's folder)
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(scales)
+library(directlabels)
+
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+bios <- map_df(files, read_csv_with_year) %>%
+  filter(grade_level!="AD") %>%
+  mutate(grade_level=ifelse(grade_level=="0K", 0, 
+                            ifelse(grade_level=="PK", -1,
+                                   ifelse(grade_level=="IN", -2, 
+                                   as.numeric(grade_level)))))
+
+df <- 
+    bios %>%
+    #filter(student_id_scram==420002000) %>%
+    #arrange(student_id_scram) %>%
+    select(student_id_scram, year, grade_level) %>%
+    mutate(grade_level=as.numeric(grade_level)) %>%
+    group_by(student_id_scram) %>%
+    arrange(year) %>%
+    mutate(did_continue=ifelse(!is.na(lead(grade_level)) & grade_level == lead(grade_level) - 1, 1, 0)) 
+
+entries_per_student <-
+    df %>%
+    group_by(student_id_scram) %>%
+    filter(ifelse(year==2013, grade_level>9, 
+                  ifelse(year==2014, grade_level>10,
+                         ifelse(year==2015, grade_level>11, grade_level>8))))
+  
+```
+
+```{r}
+new_df <-
+  entries_per_student %>%
+  left_join(tidy_grad, by=c('student_id_scram'))
+
+new_df %>%
+  ungroup() %>%
+  summarise(p=sum(is.na(graduated))/n())
+```
+
+9.5% of the students in the June Bios data are missing from the Grad data.
+
+```{r}
+new_df_2 <-
+  new_df %>%
+  filter(!any(is.na(graduated)))
+# %>%
+#   filter(any(grade_level==9)) %>%
+#   group_by(year) %>%
+#   #distinct(student_id_scram) %>%
+#   summarise(num_ninth=sum(grade_level==9, na.rm=T), 
+#             continued_to_tenth=sum(grade_level==9 & did_continue==1, na.rm=T), 
+#             continued_to_eleventh=sum(grade_level==10 & did_continue==1, na.rm=T), 
+#             continued_to_twelfth=sum(grade_level==11 & did_continue==1, na.rm=T),
+#             graduated=sum(grade_level==12 & graduated==1, na.rm=T),
+#             perc_ninth=num_ninth/num_ninth,
+#             perc_tenth=continued_to_tenth/num_ninth,
+#             perc_eleventh=continued_to_eleventh/num_ninth,
+#             perc_twelfth=continued_to_twelfth/num_ninth,
+#             perc_graduated=graduated/num_ninth)
+
+ninth <-
+  new_df_2 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+library(plyr)
+library(dplyr)
+final_df <-
+  join_all(list(a, b, c, d, e), by='year', type='left')  
+detach(package:plyr)
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(year, 7:11) %>%
+  gather("grade", "num_students", 2:6) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of")
+```
+
+Facet by ethnicity.
+
+```{r}
+students_with_eth <-
+  bios %>%
+  select(student_id_scram, ethnicity) %>%
+  distinct(student_id_scram, ethnicity) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_eth, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(ethnicity, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(ethnicity, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(ethnicity, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(ethnicity, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(ethnicity, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('ethnicity', 'year')) %>%
+  left_join(c, by=c('ethnicity', 'year')) %>%
+  left_join(d, by=c('ethnicity', 'year')) %>%
+  left_join(e, by=c('ethnicity', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(ethnicity, year, 8:12) %>%
+  gather("grade", "num_students", 3:7) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~ethnicity)
+```
+
+Facet by borough.
+
+```{r}
+students_with_boro <-
+  bios %>%
+  select(student_id_scram, dbn) %>%
+  mutate(boro=substring(dbn, 3, 3)) %>%
+  distinct(student_id_scram, boro) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_boro, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(boro, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(boro, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(boro, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(boro, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(boro, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('boro', 'year')) %>%
+  left_join(c, by=c('boro', 'year')) %>%
+  left_join(d, by=c('boro', 'year')) %>%
+  left_join(e, by=c('boro', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(boro, year, 8:12) %>%
+  gather("grade", "num_students", 3:7) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~boro)
+```
+
+Facet by us-born.
+
+```{r}
+students_with_pob <-
+  bios %>%
+  select(student_id_scram, pob_code) %>%
+  mutate(us_born=!is.na(as.numeric(pob_code))) %>%
+  distinct(student_id_scram, us_born) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_pob, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('us_born', 'year')) %>%
+  left_join(c, by=c('us_born', 'year')) %>%
+  left_join(d, by=c('us_born', 'year')) %>%
+  left_join(e, by=c('us_born', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(us_born, year, 8:12) %>%
+  gather("grade", "num_students", 3:7) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~us_born)
+```
+
+Facet by borough and us_born.
+
+```{r}
+students_with_boro_and_us <-
+  bios %>%
+  select(student_id_scram, dbn, pob_code) %>%
+  mutate(boro=substring(dbn, 3, 3), us_born=!is.na(as.numeric(pob_code))) %>%
+  distinct(student_id_scram, boro, us_born) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_boro_and_us, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(boro, us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(boro, us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(boro, us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(boro, us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(boro, us_born, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('boro', 'us_born', 'year')) %>%
+  left_join(c, by=c('boro', 'us_born', 'year')) %>%
+  left_join(d, by=c('boro', 'us_born', 'year')) %>%
+  left_join(e, by=c('boro', 'us_born', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(boro, us_born, year, 9:13) %>%
+  gather("grade", "num_students", 4:8) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_grid(us_born~boro)
+```
+
+Facet by gender.
+
+```{r}
+students_with_sex <-
+  bios %>%
+  select(student_id_scram, sex) %>%
+  distinct(student_id_scram, sex) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_sex, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(sex, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(sex, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(sex, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(sex, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(sex, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('sex', 'year')) %>%
+  left_join(c, by=c('sex', 'year')) %>%
+  left_join(d, by=c('sex', 'year')) %>%
+  left_join(e, by=c('sex', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(sex, year, 8:12) %>%
+  gather("grade", "num_students", 3:7) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~sex)
+```
+
+Facet by poverty.
+
+```{r}
+students_with_poverty <-
+  bios %>%
+  select(student_id_scram, poverty) %>%
+  distinct(student_id_scram, poverty) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_poverty, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(poverty, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(poverty, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(poverty, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(poverty, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(poverty, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('poverty', 'year')) %>%
+  left_join(c, by=c('poverty', 'year')) %>%
+  left_join(d, by=c('poverty', 'year')) %>%
+  left_join(e, by=c('poverty', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(poverty, year, 8:12) %>%
+  gather("grade", "num_students", 3:7) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~poverty)
+```
+
+Facet by disability.
+
+```{r}
+students_with_disability <-
+  bios %>%
+  select(student_id_scram, disability) %>%
+  mutate(disability=(!(is.na(disability)|disability=='ND'))) %>%
+  distinct(student_id_scram, disability) %>%
+  filter(!is.na(student_id_scram))
+
+new_df_3 <-
+  new_df_2 %>%
+  left_join(students_with_disability, by='student_id_scram')
+
+ninth <-
+  new_df_3 %>%
+  filter(any(grade_level==9))
+
+tenth <-
+  ninth %>%
+  filter(any(grade_level==10))
+
+eleventh <-
+  tenth %>%
+  filter(any(grade_level==11))
+
+twelfth <-
+  eleventh %>%
+  filter(any(grade_level==12))
+
+graduates <-
+  twelfth %>%
+  filter(max(graduated)==1)
+
+a <-
+  ninth %>%
+  group_by(disability, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(num_ninth=n())
+
+b <-
+  tenth %>%
+  group_by(disability, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_tenth=n())
+
+c <-
+  eleventh %>%
+  group_by(disability, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_eleventh=n())
+
+d <-
+  twelfth %>%
+  group_by(disability, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(continued_to_twelfth=n())
+
+e <-
+  graduates %>%
+  group_by(disability, year) %>%
+  distinct(student_id_scram) %>%
+  dplyr::summarise(graduated=n())
+
+# library(plyr)
+# library(dplyr)
+# final_df <-
+#   join_all(list(a, b, c, d, e), by=c('ethnicity','year'), type='left')  
+# detach(package:plyr)
+
+final_df <-
+  a %>%
+  left_join(b, by=c('disability', 'year')) %>%
+  left_join(c, by=c('disability', 'year')) %>%
+  left_join(d, by=c('disability', 'year')) %>%
+  left_join(e, by=c('disability', 'year'))
+
+final_df_2 <-
+  final_df %>%
+  mutate(perc_ninth=num_ninth/num_ninth,
+            perc_tenth=continued_to_tenth/num_ninth,
+            perc_eleventh=continued_to_eleventh/num_ninth,
+            perc_twelfth=continued_to_twelfth/num_ninth,
+            perc_graduated=graduated/num_ninth) %>%
+  select(disability, year, 8:12) %>%
+  gather("grade", "num_students", 3:7) %>%
+  arrange(year)
+
+final_df_2$grade[final_df_2$grade=="perc_ninth"] <- 9
+final_df_2$grade[final_df_2$grade=="perc_tenth"] <- 10
+final_df_2$grade[final_df_2$grade=="perc_eleventh"] <- 11
+final_df_2$grade[final_df_2$grade=="perc_twelfth"] <- 12
+final_df_2$grade[final_df_2$grade=="perc_graduated"] <- 13
+
+final_df_2 <-
+  final_df_2 %>%
+  mutate(grade=as.numeric(grade))
+
+final_df_2
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~disability)
+```
+
+
+## Updated visualizations (from 20170718_student_enter_exit_rates.Rmd)
+
+```{r}
+new_df <-
+  df %>%
+  left_join(tidy_grad, by=c('student_id_scram')) %>%
+  filter(!(grade_level==12&is.na(graduated)))
+
+continuation_rates <- 
+  new_df %>%
+  filter(grade_level!=-2) %>%
+  mutate(did_continue=ifelse(grade_level==12, graduated, did_continue)) %>%
+  group_by(year, grade_level) %>%
+  #distinct(year, student_id_scram, did_continue) %>%
+  #group_by(student_id_scram, grade_level) %>%
+  summarise(continuing_students=sum(did_continue), total_students=n(), continuation_rate=continuing_students/total_students)
+
+continuation_rates %>%
+  group_by(grade_level) %>%
+  summarise(avg_continuation=mean(continuation_rate), se=sd(continuation_rate)/n()) %>%
+  ggplot(aes(x=grade_level, y=avg_continuation)) +
+  scale_x_continuous(breaks=seq(-1, 12, 1), labels=c('-1'='Pre-K', '0'='K', '1'='1', '2'='2', '3'='3', '4'='4', '5'='5', '6'='6', '7'='7', '8'='8', '9'='9', '10'='10', '11'='11', '12'='12'), expand=c(0, 0.75)) +
+  scale_y_continuous(labels = percent) +
+  geom_point() +
+  geom_line() +
+  labs(x="Grade Level", y="Average Percent Continuation", title="Year-to-Year Continuation") +
+  geom_errorbar(aes(ymin = avg_continuation-se, ymax = avg_continuation+se))
+```
+
+```{r}
+continuation_rates %>%
+  filter(year!=2015) %>%
+  mutate(grade_level=as.character(grade_level)) %>%
+  mutate(grade_level=ifelse(grade_level=='-1','Pre-K',
+                            ifelse(grade_level=='0', 'K',
+                                   grade_level))) %>%
+  ggplot(aes(x=year, y=continuation_rate, color=factor(grade_level, levels=c('Pre-K', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12')))) +
+  geom_point() +
+  geom_line() +
+  labs(x="Academic Year", y="Percent Continuation", title="Trends in Continuation Rates by Grade Level", color="Grade Level") +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(2005, 2014, 1), expand=c(0, 1)) +
+  geom_dl(aes(label = as.factor(grade_level)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.75)) 
+
+```

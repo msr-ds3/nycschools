@@ -1,0 +1,36 @@
+---
+title: "0713_tidyData"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=F}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+setwd('/data/nycdoe/')
+files <- Sys.glob('HSAPS/*.csv')
+```
+Create a function that will read in the multiple files
+Read in all the data files
+Cleans up the data from wide to long with the columns: year, student_id, round, rank, and school
+```{r clean, warning=FALSE}
+#function that adds year, changes student type, and stores to a dataframe
+read_HSAPS <- function(filename){
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  print(year)
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, dplyr::contains("programcode"))
+  df
+}
+
+#reads in all the files
+HSAPS <- map_df(files, read_HSAPS)
+
+#gathers the data from wide to long
+rankings <- HSAPS %>% gather(key = 'round', value = 'school', 3:38) %>% 
+                   mutate(rank= as.factor(substr(round, 14, 15))) %>%
+                   mutate(round= as.factor(substr(round, 2, 2)))
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

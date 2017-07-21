@@ -1,0 +1,97 @@
+---
+title: '20170717'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Per-grade "survival"
+
+Loading in data.
+```{r}
+library(tidyverse)
+setwd('/data/nycdoe/')
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+bios <- map_df(files, read_csv_with_year)
+```
+
+```{r}
+(survival_df <-
+  bios %>%
+  group_by(year, grade_level) %>%
+  distinct(student_id_scram) %>%
+  summarise(total_student=n()))
+  
+```
+
+```{r}
+did_survive <- function(df, student, grade) {
+  if(is.na(grade[1]) | is.na(student[1]) | as.numeric(grade[1])==12 ) {
+    return (NA)
+  }
+  df %>%
+    filter(student_id_scram==student[1]) %>%
+    summarise(ans=any(grade_level==(as.numeric(grade[1])+1))) %>%
+    print(ans[1, 1])
+}
+
+(survival_df_students <-
+    bios %>%
+    group_by(year, grade_level) %>%
+    distinct(student_id_scram) %>%
+    ungroup() %>%
+    mutate(did_continue=did_survive(., student_id_scram, grade_level)))
+  
+
+df <- 
+    bios %>%
+    filter(student_id_scram==420002000) %>%
+    group_by(student_id_scram) %>%
+    head(30) %>%
+    select(student_id_scram, year, grade_level) %>%
+    mutate(grade_level=as.numeric(grade_level)) %>%
+    arrange(grade_level) %>%
+    mutate(did_continue=ifelse(!is.na(lead(grade_level)) & grade_level == lead(grade_level) - 1, 1, 0)) %>%
+    group_by(year, grade_level) %>%
+    distinct(student_id_scram, did_continue) %>%
+    summarise(continuing_students=sum(did_continue), total_student=n())
+```
+
+```{r}
+(survival_df_students <-
+   bios %>%
+   group_by(year, grade_level) %>%
+   distinct(student_id_scram) %>%
+   mutate(continuing_students=) )
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
