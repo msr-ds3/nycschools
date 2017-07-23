@@ -1,0 +1,172 @@
+---
+title: "20170720_Student_Performance"
+author: "Keri and David"
+date: "7/20/2017"
+output: html_document
+---
+Feature Taskforce for Student Performance keyed by student id and year
+Relevant files from:
+Science and Social Studies - science and social studies scores 
+Math and ELA - math and ela scores
+Regents - regents scores
+Grad State Calc - states student's final outcome
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+```
+#Calling in Grad State Calc Data
+Outcome_Category:
+0 - Unknown, 1 - Dropped Out
+2 - Still Enrolled, 3 - GED
+4 - IEP, 5 - Local Diploma
+6 - Regents, 7 - Advanced Regents
+```{r}
+read_grad_state_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, outcome_category)
+}
+files <- Sys.glob('/data/nycdoe/Grad/*.csv')
+grad_state_backup <- map_df(files, read_grad_state_with_year)
+grad_state <- grad_state_backup
+```
+Calling in ELA and Math Data
+```{r}
+read_ela_math_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, ela_test_grade, ela_perf_level, math_test_grade, math_perf_level)
+}
+files <- Sys.glob('/data/nycdoe/Math and ELA/*.csv')
+ela_math_backup <- map_df(files, read_ela_math_with_year)
+ela_math <- ela_math_backup
+```
+Calling in Science and Social Studies Data (2010-2015)
+#Science (2005-2009) and 2010 - 2015 is a OK
+```{r, echo=TRUE}
+read_sci_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade = col_integer(), 
+                                            performance_level = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, grade, subject, performance_level)
+  }
+files <- Sys.glob('/data/nycdoe/Science and Social Studies/*Science*.csv')
+sci_backup <- map_df(files, read_sci_with_year)
+sci <- sci_backup
+
+read_soc_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(),grade = col_integer(), 
+                                            performance_level = col_integer()),
+                 col_names = c("student_id_scram","dbn","grade","raw_score","scale_score","performance_level"))
+  df$year <- year
+  df$subject <- "Social Studies"
+  df <- select(df, year, student_id_scram, grade, subject, performance_level)
+  }
+files <- Sys.glob('/data/nycdoe/Science and Social Studies/*SocStudies*.csv')
+soc_backup <- map_df(files, read_soc_with_year)
+soc <- soc_backup
+
+#Combining Sci and Social Studies data
+sci_soc_backup <- bind_rows(sci, soc)
+sci_soc <- sci_soc_backup
+```
+Formatting  Sci Soc Data 
+```{r}
+sci_soc_performance <- sci_soc %>%
+  select(-grade) %>%
+  group_by(student_id_scram,year,subject) %>%
+  summarize(performance_level=max(performance_level))%>%
+  spread(key = subject, value = performance_level)
+
+sci_soc_grade <- sci_soc %>%
+  select(-performance_level) %>%
+  group_by(student_id_scram,year,subject) %>%
+  summarize(grade=max(grade))%>%
+  spread(key = subject, value = grade)
+
+colnames(sci_soc_performance) =  c("student_id_scram","year", "sci_perf_level", "soc_perf_level")
+colnames(sci_soc_grade) =  c("student_id_scram","year", "sci_grade_level", "soc_grade_level")
+
+sci_soc_backup <- full_join(sci_soc_performance,sci_soc_grade, by = c("student_id_scram","year"))
+sci_soc <- sci_soc_backup
+```
+Calling in Regents Data
+```{r}
+read_regents_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, mark, exam_code)
+}
+
+setwd('/data/nycdoe/Regents/')
+files <- Sys.glob('/data/nycdoe/Regents/*.csv')
+regents_backup <- map_df(files, read_regents_with_year)
+regents <- regents_backup
+
+```
+Formatting the Regents Data
+```{r}
+#Convert regent codes to first 3 substrings
+regents <- regents %>% mutate(exam_code= substr(exam_code,1,2))
+  
+#Get a list of codes we want to keep. Anything taken by less than 10000 students is dropped
+regents_keep<-regents %>%
+  mutate(exam_code= substr(exam_code,1,2)) %>% 
+  group_by(exam_code) %>% 
+  count() %>%
+  filter(n>10000) %>%
+  select(exam_code)
+
+#Bring regents down to the smaller list made earlier and then set all marks to the highest test score of one particular regent. Then spread so that a student has only one row
+regents <- left_join(regents_keep,regents,by="exam_code")%>%
+  group_by(student_id_scram, exam_code,year) %>%
+  summarise(mark = max(mark))%>%
+  spread(key=exam_code,value=mark)
+
+#Change the names so that it can be bound to another dataframe
+colnames(regents) =  c("student_id_scram","year", "Regent_English", "Regent_Language", "Regent_History", "Regent_math","Regent_RCT","Regent_Science")
+
+```
+Reading in Courses and Grades
+```{r}
+read_gpa_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols_only(student_id_scram = col_character(), grade = col_integer(),markingperiod = col_integer(), 
+                                                 numericequivalent = col_integer(), student_id = col_character(), coursetitle = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id, grade, coursetitle, markingperiod, numericequivalent)
+  }
+files <- Sys.glob('/data/nycdoe/Courses and Grades/*.csv')
+gpa_backup <- map_df(files[1:10], read_gpa_with_year)
+gpa <- gpa_backup
+```
+formatting gpa
+```{r}
+gpa <- gpa %>%
+  group_by(student_id,year) %>%
+  summarize(GPA = mean(numericequivalent))
+colnames(gpa) =  c("student_id_scram","year", "GPA")
+
+```
+Combining everything in one data frame 
+```{r}
+student_performance <- 
+student_performance <- left_join(ela_math, grad_state, by = c("year","student_id_scram"))
+student_performance <- left_join(student_performance, sci_soc, by = c("year","student_id_scram"))
+student_performance <- left_join(student_performance, regents, by = c("year","student_id_scram"))
+student_performance <- left_join(student_performance, gpa, by = c("year","student_id_scram"))
+```
+Saving everything
+```{r}
+save(student_performance, file = "/data/nycdoe/clean_data/student_perf_feature.Rdata")
+```

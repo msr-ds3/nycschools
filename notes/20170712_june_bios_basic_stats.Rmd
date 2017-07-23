@@ -1,0 +1,114 @@
+---
+title: '20170712'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+bios <- map_df(files, read_csv_with_year)
+
+# Total number in all years - unique?
+num_unique_students <- bios %>%
+  distinct(student_id_scram) %>%
+  count()
+num_unique_students
+```
+
+```{r}
+# Total number of students in system per year
+num_students_per_year <- bios %>%
+  group_by(year) %>%
+  count()
+head(num_students_per_year)
+```
+
+```{r}
+# Number who enter/exit each year
+
+summary(bios)
+
+# There are 7707205 NA's for admit_date!
+
+num_students_admitted_per_year <- bios %>%
+  mutate(admit_year=floor(admit_date/10000)) %>%
+  group_by(admit_year) %>%
+  count()
+
+head(num_students_admitted_per_year)
+```
+
+```{r}
+# Number of students by school
+num_students_by_school <- bios %>%
+  group_by(dbn) %>%
+  distinct(student_id_scram) %>%
+  count()
+head(num_students_by_school)
+```
+
+```{r}
+# Number of students by district
+num_students_by_district <- bios %>%
+    mutate(district=substring(dbn, 1, 2)) %>%
+    group_by(district) %>%
+    distinct(student_id_scram) %>%
+    count()
+head(num_students_by_district)
+```
+
+```{r}
+# Number of students by school borough
+num_students_by_borough <- bios %>%
+    mutate(borough=substring(dbn, 3, 3)) %>%
+    group_by(borough) %>%
+    distinct(student_id_scram) %>%
+    count()
+head(num_students_by_borough)
+```
+
+```{r}
+# How long are students in the system
+years_in_system <- bios %>%
+  filter(!is.na(admit_date), !is.na(disc_date)) %>%
+  mutate(admit_year=floor(admit_date/10000),
+         disc_year=floor(disc_date/10000),
+         years_in_system=disc_year-admit_year) %>%
+  select(student_id_scram, years_in_system)
+head(years_in_system)
+```
+
+```{r}
+# # Examining free lunch in the last year i.e. 2015-16
+bios %>%
+  group_by(poverty) %>%
+  count()
+## poverty  n
+## <int>  <int>
+##   0 341705
+##   1 819492
+```
+
+```{r}
+# # Relationship between free lunch (i.e. poverty) and ethnicity
+bios %>%
+  group_by(ethnicity) %>%
+  summarize(perc_poverty = mean(poverty)) %>%
+  ggplot() +
+  geom_bar(aes(x = ethnicity, y = perc_poverty), stat = "identity") +
+  scale_y_continuous(labels=scales::percent)
+```
+
+```{r}
+bios %>%
+  mutate(engspeak = as.integer(home_lang=="NO")) %>%
+  filter(!is.na(engspeak)) %>%
+  group_by(engspeak) %>%
+  summarize(perc_poverty = mean(poverty)) %>%
+  ggplot() +
+  geom_bar(aes(x = as.factor(engspeak), y = perc_poverty), stat = "identity") +
+  scale_y_continuous(labels=scales::percent)
+```

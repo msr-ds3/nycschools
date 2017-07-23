@@ -1,0 +1,87 @@
+---
+title: '20170718'
+author: "David and Keri"
+date: "7/18/2017"
+output: html_document
+---
+
+Setting up. Function to read in multiple files, selecting:
+Year, Student ID, DBN, Grade_Level, and Date
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, birth_mm_yyyy, sex, ethnicity, dbn, grade_level, contains("date"))
+}
+
+```
+Calling in Data
+```{r using bios df}
+setwd('/data/nycdoe/')
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+bios <- map_df(files, read_csv_with_year)
+```
+Configuring data
+```{r pressure, echo=TRUE}
+bios <- bios %>%
+  mutate(date = ifelse(!is.na(admit_date), admit_date, date)) %>%
+  select(-contains("_date")) %>%
+  mutate(date = floor(date/10000))
+#Change birth_mm_yyyy to dob
+colnames(bios)[3] <- "dob"
+
+```
+Convertingg grade level to numeric
+```{r, echo=TRUE}
+bios <- bios %>%
+  filter(grade_level!='AD') %>%
+  mutate(grade_level = ifelse(grade_level=='IN', '-2', grade_level)) %>%
+  mutate(grade_level = ifelse(grade_level=='0K', '0', grade_level)) %>%
+  mutate(grade_level = ifelse(grade_level=='PK', '-1', grade_level)) %>%
+  mutate(grade_level = as.numeric(grade_level))
+```
+Compare retention rate(?) of 5 of the best versus 5 of the worse schools
+```{r}
+best_vs_worst <- 
+  bios %>%
+  filter(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545' | dbn == '02M460' | dbn == '07X547' | dbn == '14K22' | dbn == '24Q455' | dbn == '08x560') %>%
+  mutate(label = ifelse(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545', 1, 0)) %>%
+  group_by(student_id_scram, label) %>% summarize(count = n())  %>%
+  ggplot(aes(x = count, fill = factor(label))) +
+  geom_bar(position = "dodge")
+  
+```
+Adding age column to the data frame
+```{r}
+bios <- 
+  bios %>% 
+  filter(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545' | dbn == '02M460' | dbn == '07X547' | dbn == '14K22' | dbn == '24Q455' | dbn == '08x560') %>%
+  mutate(label = ifelse(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545', 1, 0)) %>%
+  mutate(dob = substr(dob, 4, 7)) %>%
+  mutate(age = year - as.numeric(dob))
+```
+Sampling the 5 of the best schools
+```{r, echo = TRUE}
+best_schools <- 
+  bios %>% 
+  filter(dbn == '10X696' | dbn == '02M542' | dbn == '05M692' | dbn == '31R605' | dbn == '02M545')
+```
+Sampling the 5 of worst(?) schools
+```{r, echo = TRUE}
+worst_schools <-
+  bios %>%
+  filter(dbn == '02M460' | dbn == '07X547' | dbn == '14K22' | dbn == '24Q455' | dbn == '08x560') 
+```
+
+```{r}
+
+```

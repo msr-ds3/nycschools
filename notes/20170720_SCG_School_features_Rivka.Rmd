@@ -1,0 +1,164 @@
+---
+title: "Where Do students go to school?"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+
+
+files <- Sys.glob('/data/nycdoe/Regents/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename)
+  df$year <- year
+  df
+}
+
+RegentsData <- map_df(files, read_csv_with_year)
+
+regent_data <- RegentsData
+
+
+```
+
+```{r}
+
+RegentsData %>% group_by(student_id_scram) %>% summarise(count = n()) 
+
+RegentsData %>% filter(student_id_scram == 2339)
+
+RegentsData %>% group_by(student_id_scram, year) %>% summarise(count = n())
+
+RegentsData %>% filter(student_id_scram == 2320) %>% group_by(year) %>% summarise(count = n())
+
+RegentsData %>% filter(student_id_scram == 2320)
+
+
+```
+
+```{r}
+#get highest of each exam for each student (many students took exams multiple times)
+
+RegentsData %>% group_by(student_id_scram, exam_code)
+
+RegentsData %>% group_by(exam_code) %>% summarise() #322
+
+RegentsData %>% group_by(item_name) %>% summarise() #196 rows
+
+regent_data <- regent_data %>% mutate(exam_code = substr(exam_code, 1, 3))
+regent_data <- regent_data %>% mutate(exam_initial = substr(exam_code, 1, 1))
+
+
+RegentsData %>% group_by(exam_code) %>% summarise(count = n())
+
+main_exams <- c("English", "Math", "Language", "Science", "History")
+exam_code <- c("EX", "MX", "FX",  "SX",  "HX")
+
+map_exams <- data.frame(main_exams, exam_code)
+
+#regent_data<- inner_join(map_exams, regent_data, by = c("exam_code" = "exam_initial" ))
+
+regent_data_max_mark_per_exam <- regent_data %>% 
+  group_by(student_id_scram, exam_code, item_name, dbn) %>% 
+  summarise(maxMark = max(mark)) 
+############################# Year is NOT included #########################
+#get count of students per school
+regent_data_count_per_school <- regent_data_max_mark_per_exam %>% group_by(dbn, exam_code, item_name) %>% summarise(count = n())
+
+##############save data frame ####################
+save(regent_data_count_per_school, file = "/data/nycdoe/clean_data/regent_count_data_per_school.Rdata")
+
+###################################################
+# sample_regent_data <- regent_data_max_mark_per_exam[sample(nrow(regent_data_max_mark_per_exam), 400),]
+# 
+# 
+# #coerce mark to integer, no grades will be pass / fail
+# sample_marks <- sample_regent_data %>% mutate(maxMark = as.integer(maxMark))
+# 
+# #filter na values
+# sample_marks <- sample_marks %>% filter(!is.na(maxMark))
+# 
+# #get avg grade per school, pre year per exam
+# sample_marks <- regent_school_avg_per_exam %>% group_by(dbn, item_name, exam_code, year) %>%
+#   summarise(avgGrade = mean(maxMark))
+# 
+# sample_marks %>%
+#    ggplot(aes(x = dbn, y= avgGrade, color = exam_code)) + geom_point()
+
+#####################################################
+
+#coerce mark to integer, no grades will be pass / fail
+regent_school_avg_per_exam <- regent_data_max_mark_per_exam %>% 
+  transform(maxMark = as.integer(maxMark))
+
+#filter na values
+regent_school_avg_per_exam <- regent_school_avg_per_exam %>% 
+  filter(!is.na(maxMark))
+
+#get avg grade per school, pre year per exam
+regent_school_avg_per_exam <- regent_school_avg_per_exam %>% 
+  group_by(dbn, item_name, exam_code) %>%
+  summarise(avgGrade = mean(maxMark))
+
+#display top 10 school averges
+
+regent_school_avg_per_exam %>%
+  arrange(desc(avgGrade)) %>%
+  head(10) %>%
+  ggplot(aes(x = dbn, y= avgGrade, color = exam_code)) + geom_point()
+
+#regent_school_avg_per_exam %>% filter(exam_code == "RCT")
+
+######################### save data frame ##################################
+save(regent_school_avg_per_exam, file = "")
+
+##########################################################################
+
+##map test to subject
+
+
+#####################################################################################
+# 
+# regent_data_max_mark_per_exam %>%  View()
+# 
+# regent_school_avg_per_exam <- regent_data_max_mark_per_exam %>% 
+#   mutate(maxMark = as.integer(maxMark)) 
+# 
+# regent_school_avg_per_exam <-
+#   filter(!is.na(maxMark)) %>% 
+#   group_by(dbn, item_name, exam_code, year) %>% 
+#   summarise(avgGrade = mean(maxMark))
+# 
+# regent_school_avg_per_exam %>% 
+#   ggplot(aes(x = dbn, y= avgGrade)) + geom_bar(color = exam_code)
+```
+
+
+```{r}
+#join counts to schools
+
+regent_avgs_with_count <- inner_join(regent_data_count_per_school, regent_school_avg_per_exam, by = c("dbn", "exam_code", "item_name"))
+
+######################### save to df #########################################
+save()
+##############################################################################
+
+```
+
+```{r}
+#map basic exams to data
+
+#add exam initial collum
+regent_avgs_with_count <- regent_avgs_with_count %>% mutate(exam_initial = substr(exam_code, 1, 2))
+
+regent_avgs_with_count <- inner_join(map_exams, regent_avgs_with_count, by = c("exam_code" = "exam_initial" ))
+
+
+
+```
