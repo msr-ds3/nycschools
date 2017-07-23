@@ -1,0 +1,217 @@
+---
+title: "20170718-Map ProgramCodes to Schools"
+author: "Anandini, Thoa"
+date: "7/18/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+```
+This notebook contains code to fetch and join 2 types of data:
+
+* 1) A table that maps program (codes and names) to school dbn's. Other details include: program description (short paragraph), program's interest, admission method, scores (eng, math, soc, sci, stm, ela), number of seats and number of applications per grade 9 and per grade 10, and other requirements. 
+
+* 2) A "High School Directory" table, which helps map school dbn's to school names. Other details include: info about the location and building, contact info & website, grade info, public transport to get there, campus name, total number of students, school type/overview/program highlights, partner info.
+
+## Match program codes to school codes
+
+#### Read and clean up data:
+
+We read in the data that map programs (name & code) to schools (name & code).
+
+* Note 1: from OpenData NYC, we are able to obtain data of three years: 2016, 2014-15, 2013-14. 
+
+* Note 2: we read in two types of tables. One maps program codes to dbn's. The other maps dbn's to school names.
+
+```{r}
+library(readr)
+codes2016 <- read_csv(url('https://data.cityofnewyork.us/api/views/ge8j-uqbf/rows.csv?accessType=DOWNLOAD'))
+codes201415 <- read_csv(url('https://data.cityofnewyork.us/api/views/by6m-6zpb/rows.csv?accessType=DOWNLOAD'))
+codes201314 <- read_csv(url('https://data.cityofnewyork.us/api/views/i9pf-sj7c/rows.csv?accessType=DOWNLOAD'))
+
+names2016 <- read_csv(url('https://data.cityofnewyork.us/api/views/7crd-d9xh/rows.csv?accessType=DOWNLOAD'))
+names201415 <- read_csv(url('https://data.cityofnewyork.us/api/views/n3p6-zve2/rows.csv?accessType=DOWNLOAD'))
+names201314 <- read_csv(url('https://data.cityofnewyork.us/api/views/u553-m549/rows.csv?accessType=DOWNLOAD'))
+
+codes2016 %>% filter(!(dbn %in% names201314$dbn))
+codes201415 %>% filter(!(dbn %in% names201415$dbn))  #identify the "insane" row and drop it.
+codes201415 <-
+  codes201415 %>%
+  filter(dbn %in% names201415$dbn)
+codes201314 %>% filter(!(DBN %in% names201314$DBN))
+```
+
+### Then we select variables that we need: 
+
+And join and bind the tables across years.
+```{r}
+(schoolcodes2016 <-
+  codes2016 %>%
+  mutate(year = 2016) %>%
+  full_join(names2016, by="dbn") %>%
+  select(year, pgcode = code, pgname = program, dbn, school_name, interest, method)) %>%
+  print(width = Inf)
+(schoolcodes201415 <-
+  codes201415 %>%
+  mutate(year = 201415) %>%
+  full_join(names201415, by="dbn") %>%
+  select(year, pgcode = code, pgname = program, dbn, school_name, interest, method)) %>%
+  print(width = Inf)
+(schoolcodes201314 <-
+  codes201314 %>%
+  mutate(year = 201314) %>%
+  full_join(names201314, by="DBN") %>%
+  select(year,
+         pgcode = CODE,
+         pgname = PROGRAM,
+         dbn = DBN,
+         school_name = Printed_Name,
+         interest = INTEREST,
+         method = METHOD)) %>%
+  print(width = Inf)
+
+allschoolcodes <-
+  rbind(schoolcodes201314,
+        schoolcodes201415,
+        schoolcodes2016) 
+
+####### OLD CODE ##########################################
+# allschoolcodes %>%
+#   group_by(pgcode, dbn, year) %>%
+#   count() %>%
+#   filter(n != 1)
+# allschoolcodes %>%
+#   filter(dbn == "03M485")
+# # there are 8 programs that have no code, and they all belong to year 2013-14, and they all belong to one of the 8 specialized school (already excluding LaGuardia M485)
+# allschoolcodes %>% 
+#   filter(is.na(pgcode))
+# # we now try looking up these dbn's in the entire table, to see if they are present in other years or not.
+# allschoolcodes %>%
+#   filter(dbn %in% c("10X445",
+#                     "31R605",
+#                     "02M475",
+#                     "05M692",
+#                     "10X696",
+#                     "13K430",
+#                     "14K449",
+#                     "28Q687") & year != 201314)
+##############################################################
+```
+
+### Do some sanity check after the join and the bind:
+
+```{r sanity check}
+# this code helps us find out that programs offered at the 9 specialized schools do not have codes.
+allschoolcodes %>% 
+  filter(is.na(pgcode) | pgcode == "NO CODE")
+
+# because there are no program codes there, we will drop these schools from our table.
+# MANUAL WAY:
+# allschoolcodes <-
+#   allschoolcodes %>%
+#   filter(!(dbn %in% c("03M485",
+#                       "10X445",
+#                       "31R605",
+#                       "02M475",
+#                       "05M692",
+#                       "10X696",
+#                       "13K430",
+#                       "14K449",
+#                       "28Q687")))
+# SMARTER WAY:
+allschoolcodes <-
+  allschoolcodes %>%
+  filter(!is.na(pgcode) & pgcode != "NO CODE")
+
+# now every program appears only once per school in each year.
+allschoolcodes %>%
+  group_by(pgcode, dbn, year) %>%
+  count() %>%
+  filter(n != 1)
+
+# even more precise: each program is unique to each school
+allschoolcodes %>%
+  group_by(pgcode) %>%
+  summarize(num_schools = length(unique(dbn))) %>%
+  filter(num_schools != 1)
+
+# but one school may have multiple programs
+allschoolcodes %>%
+  group_by(dbn) %>%
+  summarize(num_programs = length(unique(pgcode))) %>%
+  filter(num_programs != 1)
+```
+
+### Ready!
+
+The following code prepares a final-version of the program code table. We also include a sample code for joining our program code table to any tables of your need.
+
+```{r map programs to schools in app_rate tables}
+# because each program is unique to each school, we now collapse the table so that there's only 1 row per programcode
+minimal_allschoolcodes <-
+  allschoolcodes %>%
+  mutate(year = ifelse(year == 2016,
+                       yes = 201600,
+                       no = year)) %>%
+  group_by(pgcode) %>%
+  filter(year == max(year)) %>%
+  mutate(year = ifelse(year == 201600,
+                       yes = 2016,
+                       no = year))
+  
+
+### Sample code for joining our table to any table of your need
+# your_table <-
+#   your_table %>%
+#   left_join(minimal_allschoolcodes, by=c("your_named_program" = "pgcode")) %>%
+#   select(year = year,
+#          pgcode = your_named_program,
+#          pgname,
+#          dbn,
+#          school_name,
+#          etc.)
+```
+
+
+```{r play-around, include=FALSE}
+# # # some programs might not be present through all 3 years.
+# allschoolcodes %>%
+#   group_by(pgcode, dbn) %>%
+#   count() %>%
+#   filter(n < 3) %>%
+#   arrange(n)
+# 
+# # let's check what year(s) these programs miss.
+# allschoolcodes %>%
+#   select(pgcode, dbn) %>%
+#   spread
+# 
+# allschoolcodes %>%
+#   # group_by(pgcode, dbn) %>%
+#   # summarize(total_year_vals = sum(year)) %>%
+#   # filter(total_year_vals != 404745) %>%
+#   # left_join(allschoolcodes, by=c("pgcode", "dbn")) %>%
+#   mutate(missed_year = ifelse(year == 201314,
+#                               yes = ifelse(year == 201415,
+#                                            yes = ifelse(year == 2016,
+#                                                         yes = NA,
+#                                                         no = 2016),
+#                                            no = 201415),
+#                               no = 201314)) %>%
+#   select(pgcode, dbn, year, missed_year) %>%
+#   group_by(pgcode, dbn) %>%
+#   summarize()
+#  # our guess is 2016 has the most exhaustive list of program codes. Here's our check:
+# 
+#   mutate(what_year_missed = as.character(404745 - total_year_vals)) %>%
+#   mutate(what_year_missed = ifelse(what_year_missed == "402729", 
+#                                    yes="201314 and 201516", 
+#                                    no= ifelse(what_year_missed == "20330",
+#                                               yes="201314 and 2016")) %>%
+#   select(-total_year_vals) %>%
+#   filter(what_year_missed != 0)
+```
+
