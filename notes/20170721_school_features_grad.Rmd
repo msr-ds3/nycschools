@@ -1,0 +1,135 @@
+---
+title: "School Feature grad"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+
+load("/data/nycdoe/clean_data/tidy_grad_year_data.Rdata")
+
+files <- Sys.glob('/data/nycdoe/Grad/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(school_resp_code = col_character()))
+  df$year <- year
+  df
+}
+
+GradData <- map_df(files, read_csv_with_year)
+
+grad_data <- GradData
+###############################################
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+JuneBio <- map_df(files, read_csv_with_year)
+
+bio_data <- JuneBio
+```
+
+```{r}
+
+grad_data %>% head() %>% View()
+
+grad_data %>% group_by(diploma) %>% summarise()
+
+#tidy_grad <- tidy_grad %>% group_by(student_id_scram, graduated, year) %>% summarise(min(year)) %>% group_by(student_id_scram)
+
+
+```
+#Join tidy grad and bio data
+```{r}
+
+bio_data %>% group_by(student_id_scram) %>% summarise(count = n())
+
+grad_bio <-  inner_join(tidy_grad, bio_data, by = c("student_id_scram", "year"))
+
+
+###################
+
+tidy_grad_bio <- grad_bio %>% group_by(student_id_scram, graduated, year) %>% summarise(yearGrad = ifelse(graduated == 1, min(year), -1))
+
+tidy_grad_bio
+
+tidy_grad_bio %>% group_by(student_id_scram) %>% summarise(count = n())
+
+tidy_grad_bio %>% filter(student_id_scram == 1262143)
+
+tidy_grad_bio %>% group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(n = n())
+############################
+
+grad_bio %>% group_by(student_id_scram) %>% summarise(count = n()) %>% arrange(desc(count))
+
+grad_bio %>% filter(graduated == 0 & grade_level ==12)
+
+grads_one = grad_bio %>% filter(graduated ==1)
+
+grads_one <- grads_one %>% group_by(student_id_scram) %>% mutate(count = n()) #%>% group_by(count) %>% summarise(x = n())
+
+grads_one %>% filter(count > 1)
+
+
+#Students graduated multiple times!
+
+grads_one <- grads_one %>% group_by(student_id_scram) %>% filter(year == max(year))
+
+
+grads_one %>% group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(n = n())
+
+grads_zero <- grad_bio %>% filter(graduated ==0)
+
+
+join_grad_zero_one <- rbind(grads_one, grads_zero)
+
+
+join_grad_zero_one %>% group_by(dbn, student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(x = n())
+
+percent_grad <- join_grad_zero_one %>% group_by(dbn) %>% summarise(numStudents = n_distinct(student_id_scram), grads = sum(graduated))
+
+percent_grad <- percent_grad %>% mutate(percentGrad = (grads/numStudents)*100)
+save(percent_grad, file = "/data/nycdoe/clean_data/percent_grad_per_school.Rdata")
+
+num_grads_per_dbn <- join_grad_zero_one %>% group_by()
+
+
+
+```
+
+```{r}
+
+grad_bio %>% group_by(dbn) %>% summarise(count = n())
+
+grad_bio %>% filter(graduated ==0) 
+```
+
+```{r}
+bio_data %>% head()
+
+```
+
+
+```{r}
+#plot counts across all schools
+load("/data/nycdoe/clean_data/percent_grad_per_school.Rdata")
+
+percent_grad %>% 
+  ggplot(aes(x = grads)) + geom_histogram()+ ylab("num Schools")
+
+
+percent_grad %>% 
+  ggplot(aes(x = numStudents)) + geom_histogram()+ ylab("num Schools")
+```
+
+

@@ -1,0 +1,483 @@
+---
+title: "20170720 - Do You Get What You Want"
+author: "Anandini, Thoa"
+date: "7/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+hsaps_files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+june_biog_files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+```
+### Read in data from HSAPS and June Biog
+
+Here we read in HSAPS data from 2008 to 2015 (in academic year term: 2008-09 to 2015-16) because  they have small proportion of NAs in `final_disposition`. 
+
+We choose the following colums:
+
+* `r1programcode*` : specify the program that a student ranks and applies to in the first round.
+
+* `final_disposition`: specify the program that a student gets finalized to.
+
+```{r read-hsaps, include=FALSE}
+# read hsaps data
+read_satisfied <- function(filename) {
+  print(filename)
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            final_disposition_round=col_character(),
+                                            opt_out_status=col_integer()))
+  df$year <- year
+  df <- df %>% 
+    select(year, 
+           student_id_scram, 
+           starts_with("r1programcode"), 
+           starts_with("opt_out_"), 
+           contains("final_disposition"))
+}
+
+satisfied_08_15 <- map_df(hsaps_files[4:11], read_satisfied)
+
+# ~5% have NA final_disposition
+satisfied_08_15 %>%
+  group_by(is.na(final_disposition)) %>%
+  count()
+
+# ~ 24.5% have NA opt_out_status; ~3.6% did opt out.
+satisfied_08_15 %>%
+  group_by(opt_out_status) %>%
+  count()
+
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode12)) %>%
+  count()
+summary(satisfied_08_15)
+```
+
+
+Then we read in June Biog data to have students' demographics.
+
+```{r read-june-bio, include=FALSE}
+read_students_hs <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            grade_level=col_character()))
+  df$year <- year
+  df <- df %>% 
+    select(year, student_id_scram, grade_level, dbn, sex, ethnicity, ell, swd, home_lang)
+}
+students_hs_08_15 <- map_df(june_biog_files[4:11], read_students_hs)
+ #could not get disabilty now, not present in some year. 
+```
+
+### What percentage of applicants not listing all 12 choice?
+
+```{r sanity-check, results='hide'}
+
+# ~ 85% not filled out 12th choice.
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode12)) %>%
+  count()
+
+# ~ 80% not filled out 11th choice.
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode11)) %>%
+  count()
+
+# ~ 75% not filled out 10th choice.
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode10)) %>%
+  count()
+
+# ~ 69% not filled out 9th choice
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode9)) %>%
+  count()
+
+# ~ 62% not filled out 8th choice
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode8)) %>%
+  count()
+
+# ~ 53% not filled out 7th choice
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode7)) %>%
+  count()
+
+# ~ 42% not filled out 6th choice
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode6)) %>%
+  count()
+
+# ~ 32% not filled out 5th choice
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode5)) %>%
+  count()
+
+# ~ 26% not filled out 4th choice
+satisfied_08_15 %>%
+  group_by(is.na(r1programcode4)) %>%
+  count() 
+
+```
+
+### Calculating the `was_satisfied` metrics
+
+```{r calculuate-satisfied, echo=FALSE}
+pc_satisfied_table <- data.frame(k_value = c(12, 6, 3, 1),
+                           percent_students_satisfied = rep(NA, 4))
+
+for (k in c(12, 6, 3, 1)) {
+  temp_tbl <-
+    satisfied_08_15 %>%
+    gather("rank", "program_applied", 3:14) %>%
+    mutate(rank = as.numeric(substring(rank, 14))) %>%
+    filter(rank <= k) %>%
+    mutate(was_satisfied = as.numeric(final_disposition == program_applied)) %>%
+    group_by(year, student_id_scram) %>%
+    summarize(was_satisfied = sum(was_satisfied, na.rm = TRUE))
+  pc_satisfied <- mean(temp_tbl$was_satisfied, na.rm = T)  # although there's no NA, remove NA's just to be extra safe!
+  pc_satisfied_table <-
+    pc_satisfied_table %>%
+    mutate(percent_students_satisfied = ifelse(k_value == k,
+                                               yes = pc_satisfied,
+                                               no = percent_students_satisfied))
+  if (k == 12) long_satisfied_08_15_top12 <- temp_tbl
+  if (k == 6) long_satisfied_08_15_top6 <- temp_tbl
+  if (k == 3) long_satisfied_08_15_top3 <- temp_tbl
+  if (k == 1) long_satisfied_08_15_top1 <- temp_tbl
+}
+pc_satisfied_table
+
+```
+
+### Join HSAPS and June Bio data, on student_id and year. 
+
+Will drop 85,205 rows whose `student_id_scram` correspoding with `year` are not exist in June Biog.
+
+```{r join-tables, include=FALSE}
+
+### ONE WAY #######
+all_k_satisfied_08_15 <- 
+  long_satisfied_08_15_top12 %>%
+  left_join(long_satisfied_08_15_top6, by = c("student_id_scram", "year"), suffix = c("_top12", "_top6")) %>%
+  left_join(long_satisfied_08_15_top3, by = c("student_id_scram", "year")) %>%
+  left_join(long_satisfied_08_15_top1, by = c("student_id_scram", "year"), suffix = c(""      , "_top1")) %>%
+  rename("was_satisfied_top3" = was_satisfied)  
+# top3 was unable to rename using `suffix` because its column `was_satisfied` is non-duplicate from the previous table, rendering the argument `suffix` ineffective. Meanwhile, when top1 is joined in, its same column is now duplicate with that from top3, hence `suffix` works.
+
+### ANOTHER WAY #########
+all_k_satisfied_08_15 <- 
+  long_satisfied_08_15_top12 %>%
+  cbind(long_satisfied_08_15_top6) %>%
+  cbind(long_satisfied_08_15_top3) %>%
+  cbind(long_satisfied_08_15_top1) %>%
+  select(year,
+         student_id_scram,
+         was_satisfied_top12 = was_satisfied,
+         was_satisfied_top6 = was_satisfied1,
+         was_satisfied_top3 = was_satisfied2,
+         was_satisfied_top1 = was_satisfied3)
+
+withfeatures_satisfied_08_15 <-
+  inner_join(students_hs_08_15, all_k_satisfied_08_15, by = c("student_id_scram", "year"))
+```
+
+```{r examine the finalized table}
+summary(withfeatures_satisfied_08_15)
+
+# 52 students have NA in home language
+withfeatures_satisfied_08_15 %>%
+  filter(is.na(home_lang))
+
+# so we'll drop these rows with NA's in home language, before we put it into our model
+withfeatures_satisfied_08_15 <- 
+  withfeatures_satisfied_08_15 %>%
+  filter(!is.na(home_lang))
+
+withfeatures_satisfied_08_15 %>%
+  group_by(grade_level) %>%
+  count()
+
+withfeatures_satisfied_08_15 %>%
+  group_by(ethnicity) %>%
+  count()
+```  
+
+### Starting our regression!
+
+```{r regression, message=FALSE}
+library(glmnet)
+library(scales)
+library(ROCR)
+library(Matrix)
+
+############ Model R #################
+library(modelr)
+
+frmula_top12 <- as.formula(was_satisfied_top12 ~ as.factor(year) + sex + ethnicity + ell + swd)
+frmula_top1 <- as.formula(was_satisfied_top1 ~ as.factor(year) + sex + ethnicity + ell + swd)
+
+mooo_top12 <- model.matrix(object = frmula_top12, 
+                     data = withfeatures_satisfied_08_15)
+mooo_top1 <- model.matrix(object = frmula_top1, 
+                     data = withfeatures_satisfied_08_15)
+
+logit_satisfied_top12 <- glmnet(x = mooo_top12,
+                          y = withfeatures_satisfied_08_15$was_satisfied_top12,
+                          family = "binomial",
+                          lambda = 0)
+logit_satisfied_top1 <- glmnet(x = mooo_top1,
+                          y = withfeatures_satisfied_08_15$was_satisfied_top1,
+                          family = "binomial",
+                          lambda = 0)
+
+plot(logit_satisfied_top12)
+coef(logit_satisfied_top12)
+
+plot(logit_satisfied_top1)
+coef(logit_satisfied_top1)
+```
+
+From the coefficients, we see that:
+
+To get to your top12 schools:
+
+* In year 2012, your chance of being satisfied was the lowest.
+
+* Being male slightly decreased your chance of being satisfied.
+
+* Being Black or Hispanic increased your chance of being satisfied. 
+
+* Being an ELL or student with disability increased your chance of being satisfied.
+
+To get to your top1 schools:
+
+* Year 12 again as the year of least chance of being satisfied.
+
+* The effect of being male on your chance was significantly lowered, compared to the top12 scenario.
+
+* Being Asian decreased your chance.
+
+* Similar as above, being an ELL or student with disability increased your chance of being satisfied. Could it be becaues ELL's and SWD's generally have fewer choices, therefore they tend to list programs/schools that they are highly suitable for?
+
+```{r model-evaluation, message=FALSE}
+
+(baseline_accuracy_top12 <- mean(withfeatures_satisfied_08_15$was_satisfied_top12))
+(baseline_accuracy_top1 <- mean(withfeatures_satisfied_08_15$was_satisfied_top1))
+  
+df <- data.frame(actual_top12 = withfeatures_satisfied_08_15$was_satisfied_top12,
+                 predicted_top12 = predict(object = logit_satisfied_top12, newx = mooo_top12, type = "response"),
+                 actual_top1 = withfeatures_satisfied_08_15$was_satisfied_top1,
+                 predicted_top1 = predict(object = logit_satisfied_top12, newx = mooo_top1, type = "response"))
+summary(df)
+df <-
+  df %>%
+  rename("predicted_top12" = s0,
+         "predicted_top1" = s0.1)
+df <-
+  df %>%
+  mutate(adjusted_pred_top12 = ifelse(predicted_top12 > 0.5, yes=1, no=0),
+         adjusted_pred_top1 = ifelse(predicted_top1 < 0.5, yes=1, no=0))
+
+
+# ROC curve and AUC
+pred_top12 <- prediction(df$predicted_top12, df$actual_top12)
+perf_top12 <- performance(pred_top12, measure='tpr', x.measure='fpr')
+
+pred_top1 <- prediction(df$predicted_top1, df$actual_top1)
+perf_top1 <- performance(pred_top1, measure='tpr', x.measure='fpr')
+
+plot(perf_top12, main = "ROC curve for k=12 classifier")
+plot(perf_top1, main = "ROC curve for k=1 classifier")
+
+performance(pred_top12, 'auc')
+performance(pred_top1, 'auc')
+
+# confusion matrix: doesn't work because the packages are missing.
+# library(tidyr)
+# library(stargazer)
+# library(caret)
+# confusionMatrix(df$actual_top12, df$predicted_top12)
+
+# manually calculating the confusion matrix:
+
+########### TOP 12 ################
+actual_negatives_top12 <- nrow(df) - sum(df$actual_top12)
+actual_positives_top12 <- sum(df$actual_top12)
+
+false_negatives_top12 <- nrow(df[which(df$adjusted_pred_top12 == 0 & df$actual_top12 == 1), ])
+false_positives_top12 <- nrow(df[which(df$adjusted_pred_top12 == 1 & df$actual_top12 == 0), ])
+
+true_negatives_top12 <- nrow(df[which(df$adjusted_pred_top12 == 0 & df$actual_top12 == 0), ])
+true_positives_top12 <- nrow(df[which(df$adjusted_pred_top12 == 1 & df$actual_top12 == 1), ])
+
+# ACCURACY: fraction of correct classifications
+(accuracy_top12 <- mean(df$adjusted_pred_top12 == df$actual_top12))
+
+# RECALL, SENSITIVITY: 
+(recall_top12 <- true_positives_top12 / (true_positives_top12 + false_negatives_top12)) 
+
+# PRECISION: fraction of positive predictions that are actually true
+(precision_top12 <- true_positives_top12 / (true_positives_top12 + false_positives_top12))
+
+confMatrix_top12 <-
+  matrix(c(true_positives_top12, false_negatives_top12,
+           false_positives_top12, true_negatives_top12),
+         nrow = 2,
+         ncol = 2,
+         byrow = TRUE,
+         dimnames = list(c("actual=T", "actual=F"),
+                         c("predicted=T", "predicted=F")))
+confMatrix_top12
+
+
+
+########### TOP 1 ################
+actual_negatives_top1 <- nrow(df) - sum(df$actual_top1)
+actual_positives_top1 <- sum(df$actual_top1)
+
+false_negatives_top1 <- nrow(df[which(df$adjusted_pred_top1 == 0 & df$actual_top1 == 1), ])
+false_positives_top1 <- nrow(df[which(df$adjusted_pred_top1 == 1 & df$actual_top1 == 0), ])
+
+true_negatives_top1 <- nrow(df[which(df$adjusted_pred_top1 == 0 & df$actual_top1 == 0), ])
+true_positives_top1 <- nrow(df[which(df$adjusted_pred_top1 == 1 & df$actual_top1 == 1), ])
+
+# ACCURACY: fraction of correct classifications
+(accuracy_top1 <- mean(df$adjusted_pred_top1 == df$actual_top1))
+
+# RECALL, SENSITIVITY: 
+(recall_top1 <- true_positives_top1 / (true_positives_top1 + false_negatives_top1)) 
+
+# PRECISION: fraction of positive predictions that are actually true
+(precision_top1 <- true_positives_top1 / (true_positives_top1 + false_positives_top1))
+
+confMatrix_top1 <-
+  matrix(c(true_positives_top1, false_negatives_top1,
+           false_positives_top1, true_negatives_top1),
+         nrow = 2,
+         ncol = 2,
+         byrow = TRUE,
+         dimnames = list(c("actual=T", "actual=F"),
+                         c("predicted=T", "predicted=F")))
+confMatrix_top1
+```
+
+
+### Note
+Because the models are not doing well enough, other features we might want to ask (in addition to students' test scores) include:
+
+* where the applicant lives, 
+
+* number of choices listed, 
+
+* whether they list their local school, 
+
+* whether the school listed is more or less selective,
+
+* etc.
+
+
+```{r draft, eval=FALSE, include=FALSE}
+# per(i,1) false negative rate = (false negatives)/(all output negatives)
+false_negative_rate <- false_negatives / all_negatives 
+
+# per(i,2) false positive rate = (false positives)/(all output positives)
+false_positive_rate <- false_positives / all_positives
+
+# per(i,4) true negative rate = (true negatives)/(all output negatives)
+true_negative_rate <- true_negatives / all_negatives
+
+# false positive rate: fraction of false examples that we predicted to be positive
+df %>%
+  filter(actual == 'email') %>%
+  summarize(fpr = mean(pred == 'spam'))
+
+
+# # create a train / test split
+# set.seed(42)
+# ndx <- sample(nrow(joined_satisfied_08_15), floor(nrow(joined_satisfied_08_15) * 0.8))
+# train_data <- joined_satisfied_08_15[ndx, ]
+# test_data <- joined_satisfied_08_15[-ndx, ]
+# 
+# ## DO NOT RUN! Freeze when run!
+# logit_satisfied <- glm(data = train_data,
+#                        formula = was_satisfied ~ as.factor(year) + sex + ethnicity + ell + swd + home_lang,
+#                        family = "binomial")
+# summary(logit_satisfied)
+# 
+# ### Try this instead! (Stil yield error!)
+# trainX <- as.matrix(joined_satisfied_08_15[ndx, c("year", "sex", "ethnicity", "ell", "swd", "home_lang")])
+# testX <- as.matrix(joined_satisfied_08_15[-ndx, c("year", "sex", "ethnicity", "ell", "swd", "home_lang")])
+# 
+# trainY <- joined_satisfied_08_15[ndx, "was_satisfied"]
+# logit_satisfied <- glmnet(x= trainX,
+#                           y = trainY,
+#                           family = "binomial")
+
+
+################# CHEAPER WAY TO RUN LOGISTIC REGRESSION ###################
+###### Jake's code #########################################################
+set.seed(42)
+N <- 100
+df <- data.frame(y = rbinom(N, 1, 0.5),
+                 x1 = sample(1:3, N, replace = T), 
+                 x2 = sample(c('a','b','c'), N, replace = T))
+
+model_data <- df %>%
+  group_by_at(setdiff(names(df), "y")) %>%
+  summarize(yes = sum(y), no = n() - sum(y))
+
+model <- glm(cbind(yes,no) ~ x1 + x2, model_data, family = binomial)
+
+fitted(model)
+##########################################################################
+
+try_cheap_logit_data <- withfeatures_satisfied_08_15
+model_data <- try_cheap_logit_data %>%
+  group_by_at(setdiff(names(try_cheap_logit_data), "was_satisfied_top12")) %>%
+  summarize(yes = sum(was_satisfied_top12), no = n() - sum(was_satisfied_top12))
+
+withfeatures_satisfied_08_15 %>%
+  group_by(home_lang) %>%
+  count() %>%
+  arrange(desc(n))
+# ###
+# Most popular home languages
+#   - NO: English (322,987)
+#   - SP: Spanish (145,991)
+#   - CN: Cantonese (12,141)
+#   - BG: Bengali (11,253)
+#   - CH: Chinese, any (9715)
+#   - MN: Mandarin (9493)
+#   - RU: Russian  (9161)
+#   - AR: Arabic (7336)
+#   - UD: Urdu  (5684)
+#   - Haitian Creole (4108)
+
+## NOTE: this model is not finalized yet. Features included here are mostly for experiment.
+model <- glm(cbind(yes,no) ~ as.factor(year) + sex + ethnicity + ell + swd + 
+             (home_lang == "NO") + (home_lang == "SP") + (home_lang == "CN") + (home_lang == "BG") + (home_lang == "CH") + (home_lang == "MN") + 
+             (home_lang == "RU") + (home_lang == "AR") + (home_lang == "UD"), 
+             model_data, family = binomial)
+
+fitted(model) 
+
+try_cheap_df <- data.frame(actual = withfeatures_satisfied_08_15$was_satisfied_top12,
+                           predicted = fitted(model))
+summary(try_cheap_df)
+head(try_cheap_df)
+try_cheap_df$adjusted_pred <- ifelse(df$s0 > 0.5,
+                         yes = 1,
+                         no = 0)
+summary(try_cheap_df)
+
+# ROC curve and AUC
+pred <- prediction(try_cheap_df$predicted, try_cheap_df$actual)
+perf <- performance(pred, measure='tpr', x.measure='fpr')
+plot(perf)
+performance(pred, 'auc')
+```
