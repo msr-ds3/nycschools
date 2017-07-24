@@ -1,0 +1,144 @@
+---
+title: '20170712-June Bios'
+author: "Ilana, Thoa"
+date: "7/12/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+```
+
+
+```{r}
+# Get stats for all years' data in one df
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, 
+                 col_types = cols(grade_level=col_character(), 
+                                  grade_code=col_character(), 
+                                  admit_code=col_character(), 
+                                  adcode=col_character(),
+                                  fall_days_present=col_character(), 
+                                  spring_days_present=col_character()
+                                  )
+                 )
+  df$year <- year
+  df
+}
+bios <- map_df(files, read_csv_with_year)
+
+# Total number of unique students in all years
+num_unique_students <- bios %>%
+  distinct(student_id_scram) %>%
+  count()
+num_unique_students
+```
+
+### Total number of students in system per year
+```{r}
+(num_students_per_year <- bios %>%
+  group_by(year) %>%
+  count()) %>%
+  print(n = Inf)
+
+```
+
+### Number who enter/exit each year
+
+```{r}
+# There are 7,707,205 NA's for admit_date!
+summary(bios)
+
+num_students_admitted_per_year <- bios %>%
+  mutate(admit_year=floor(admit_date/10000)) %>%
+  group_by(admit_year) %>%
+  count()
+
+head(num_students_admitted_per_year)
+```
+
+### Number of students by school
+```{r}
+
+num_students_by_school <- bios %>%
+  group_by(dbn) %>%
+  distinct(student_id_scram) %>%
+  count()
+head(num_students_by_school)
+```
+
+### Number of students by district
+```{r}
+
+num_students_by_district <- bios %>%
+    mutate(district=substring(dbn, 1, 2)) %>%
+    group_by(district) %>%
+    distinct(student_id_scram) %>%
+    count()
+head(num_students_by_district)
+```
+
+### Number of students by school borough
+```{r}
+
+num_students_by_borough <- bios %>%
+    mutate(borough=substring(dbn, 3, 3)) %>%
+    group_by(borough) %>%
+    distinct(student_id_scram) %>%
+    count()
+head(num_students_by_borough)
+```
+
+### How long are students in the system
+```{r}
+years_in_system <- bios %>%
+  filter(!is.na(admit_date), !is.na(disc_date)) %>%
+  mutate(admit_year=floor(admit_date/10000),
+         disc_year=floor(disc_date/10000),
+         years_in_system=disc_year-admit_year) %>%
+  select(student_id_scram, years_in_system)
+head(years_in_system)
+```
+
+### Free lunch count in all years
+```{r}
+# Examining free lunch in the last year i.e. 2015-16
+## poverty  n
+## <int>  <int>
+##   0 341705
+##   1 819492
+
+# Examining free lunch in all years
+bios %>%
+  group_by(poverty) %>%
+  count()
+```
+
+### Free lunch and ethnicity
+```{r}
+bios %>%
+  group_by(ethnicity) %>%
+  summarize(perc_poverty = mean(poverty)) %>%
+  ggplot() +
+  geom_bar(aes(x = ethnicity, y = perc_poverty), stat = "identity") +
+  scale_y_continuous("Percent of receiving free/reduced-priced lunch",
+                     labels=scales::percent)
+```
+
+### Free lunch and language spoken at home
+```{r}
+bios %>%
+  mutate(engspeak = as.logical(home_lang=="NO")) %>%
+  filter(!is.na(engspeak)) %>%
+  group_by(engspeak) %>%
+  summarize(perc_poverty = mean(poverty)) %>%
+  ggplot() +
+  geom_bar(aes(x = as.factor(engspeak), y = perc_poverty), stat = "identity") +
+  scale_y_continuous("Percent of receiving free/reduced-priced lunch",
+                     labels=scales::percent) +
+  xlab("Speaks English at home")
+```

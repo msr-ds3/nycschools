@@ -1,0 +1,91 @@
+---
+title: "20170720_Student_Performance"
+author: "Keri and David"
+date: "7/20/2017"
+output: html_document
+---
+Feature Taskforce for Student Performance keyed by student id and year
+Relevant files from:
+Science and Social Studies - science and social studies scores 
+Math and ELA - math and ela scores
+Regents - regents scores
+Grad State Calc - states student's final outcome
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+
+```
+
+Calling in Regents Data
+```{r}
+read_regents_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename)
+  df$year <- year
+  df <- select(df, year, student_id_scram, mark, exam_code)
+}
+
+setwd('/data/nycdoe/Regents/')
+files <- Sys.glob('/data/nycdoe/Regents/*.csv')
+regents_backup <- map_df(files, read_regents_with_year)
+regents <- regents_backup
+
+```
+Formatting the Regents Data
+```{r}
+#Code to convert old codes to new. Doesnt work. Not technically needed anywyas
+
+#exam_code = c('MXRE','MXRG','MXRT','EXRL','HXR$','HXRA','SXR$','SXRK','SXRU','SXRX','RCTG','RCTH','RCTS','RCTW','RCTR','RCTM')
+#new_exam_code = c('MXRER','MXRGR','MXRTR','EXRLR','HXRGR','HXRUR','SXRPR','SXRKR','SXRUR','SXRXR','HXCGR','HXCUR','SXCSR','EXCWR','EXCRR','MXCMR')
+#df = data.frame(exam_code,new_exam_code)
+#regents<-left_join(regents,df,by="exam_code")
+#regents1 <- regents %>%
+#  mutate(exam_code = ifelse((exam_code != new_exam_code) & (!is.na(new_exam_code)), new_exam_code , exam_code))
+  
+#Convert regent codes to first 3 substrings
+regents <- regents %>% mutate(exam_code= substr(exam_code,1,2))
+  
+#Get a list of codes we want to keep. Anything taken by less than 10000 students is dropped
+regents_keep<-regents %>%
+  mutate(exam_code= substr(exam_code,1,2)) %>% 
+  group_by(exam_code) %>% 
+  count() %>%
+  filter(n>10000) %>%
+  select(exam_code)
+
+#Bring regents down to the smaller list made earlier and then set all marks to the highest test score of one particular regent. Then spread so that a student has only one row
+regents <- left_join(regents_keep,regents,by="exam_code")%>%
+  group_by(student_id_scram, exam_code,year) %>%
+  summarise(mark = max(mark))%>%
+  spread(key=exam_code,value=mark)
+
+#Change the names so that it can be bound to another dataframe
+colnames(regents) =  c("student_id_scram","year", "Regent_English", "Regent_Language", "Regent_History", "Regent_math","Regent_RCT","Regent_Science")
+
+```
+Reading in Courses and Grades
+```{r}
+read_gpa_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols_only(student_id_scram = col_character(), grade = col_integer(),markingperiod = col_integer(), 
+                                                 numericequivalent = col_integer(), student_id = col_character(), coursetitle = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id, grade, coursetitle, markingperiod, numericequivalent)
+  }
+files <- Sys.glob('/data/nycdoe/Courses and Grades/*.csv')
+gpa_backup <- map_df(files[1:10], read_gpa_with_year)
+gpa <- gpa_backup
+```
+formatting gpa
+```{r}
+gpa <- gpa %>%
+  group_by(student_id,year) %>%
+  summarize(GPA = mean(numericequivalent))
+colnames(gpa) =  c("student_id_scram","year", "GPA")
+
+```
