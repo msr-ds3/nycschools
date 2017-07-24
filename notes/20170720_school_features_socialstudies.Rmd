@@ -1,0 +1,100 @@
+---
+title: "Automated Guidance Counselor - School Features"
+author: "Rivka and Ro"
+date: "7/20/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+
+read_sci_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(
+  student_id_scram = col_integer(),
+  dbn = col_character(),
+  grade = col_integer(),
+  subject = col_character(),
+  raw_score = col_integer(),
+  scale_score = col_integer(),
+  performance_level = col_integer()
+))
+  df$year <- year
+  df <- select(df, year, student_id_scram, dbn, grade, subject, performance_level, scale_score)
+}
+
+files <- Sys.glob('/data/nycdoe/Science and Social Studies/*Science*.csv')
+
+sci_backup <- map_df(files, read_sci_with_year)
+
+sci <- sci_backup
+
+read_soc_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(
+  student_id_scram = col_integer(),
+  dbn = col_character(),
+  grade_level = col_integer(),
+  raw_score = col_integer(),
+  scale_score = col_integer(),
+  perf_level = col_integer()
+))
+  df$year <- year
+  df$subject <- "Social Studies"
+  df <- select(df, year, student_id_scram, dbn, subject, perf_level, scale_score)
+}
+
+files <- Sys.glob('/data/nycdoe/Science and Social Studies/*SocStudies*.csv')
+
+soc_backup <- map_df(files, read_soc_with_year)
+soc <- soc_backup
+
+#Combining Sci and Social Studies data
+sci_soc_backup <- bind_rows(sci, soc)
+sci_soc <- sci_soc_backup
+```
+Formatting  Sci Soc Data 
+```{r}
+
+sci_soc %>% filter(!is.na(performance_level), !is.na(scale_score))
+
+
+sci_soc_performance <- sci_soc %>%
+  select(-grade) %>%
+  group_by(dbn,year,subject) %>%
+  summarize(performance_level=max(performance_level))%>%
+  spread(key = subject, value = performance_level)
+
+sci_soc_grade <- sci_soc %>%
+  select(-performance_level) %>%
+  group_by(student_id_scram,year,subject) %>%
+  summarize(grade=max(grade))%>%
+  spread(key = subject, value = grade)
+
+colnames(sci_soc_performance) =  c("student_id_scram","year", "sci_perf_level", "soc_perf_level")
+colnames(sci_soc_grade) =  c("student_id_scram","year", "sci_grade_level", "soc_grade_level")
+
+sci_soc_backup <- full_join(sci_soc_performance,sci_soc_grade, by = c("student_id_scram","year"))
+sci_soc <- sci_soc_backup
+
+```
+
+```{r}
+View(course_grades)
+
+avg_gpa_by_school <- course_grades %>% 
+  group_by(schooldbn,year) %>% filter(!is.na(numericequivalent)) %>%
+  summarize(GPA = mean(numericequivalent), student_count = n())
+
+avg_gpa_by_school %>% filter(schooldbn == "01M458")
+
+
+save(avg_gpa_by_school, file = "/data/nycdoe/clean_data/gpa_avg_per_school.Rdata")
+
+
+```
