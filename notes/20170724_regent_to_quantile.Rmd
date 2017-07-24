@@ -1,0 +1,130 @@
+---
+title: '20170724'
+author: "David and Keri"
+date: "7/24/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+
+load('/data/nycdoe/clean_data/student_perf_feature.Rdata')
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+student_regents_quantile <-
+  regents %>%
+  select(student_id_scram,year)
+#Math
+regent_just_math <- regents %>%
+  filter(!is.na(Regent_math)) %>%
+  mutate(Regent_math=as.numeric(Regent_math))%>%
+  select(student_id_scram,year,Regent_math)
+ 
+regent_just_math <- regent_just_math %>%
+   within(regent_math_quantile <- as.integer(cut(Regent_math, quantile(Regent_math, probs=0:10/10, na.rm=TRUE), include.lowest=TRUE)))
+
+student_regents_quantile <-
+  left_join(student_regents_quantile, regent_just_math, by=c("student_id_scram", "year"))
+
+student_regents_quantile <- student_regents_quantile %>%
+  mutate(regent_math_quantile = as.character(regent_math_quantile)) %>%
+  mutate(regent_math_quantile = ifelse(is.na(regent_math_quantile),"Unknown", regent_math_quantile))
+
+#English
+  regent_just_english <- regents %>%
+  filter(!is.na(Regent_English)) %>%
+  mutate(Regent_English=as.numeric(Regent_English))%>%
+  select(student_id_scram,year,Regent_English)
+ 
+regent_just_english <- regent_just_english %>%
+   within(regent_english_quantile <- as.integer(cut(Regent_English, quantile(Regent_English, probs=0:10/10, na.rm=TRUE), include.lowest=TRUE)))
+
+student_regents_quantile <-
+  left_join(student_regents_quantile, regent_just_english, by=c("student_id_scram", "year")) %>%
+  mutate(regent_english_quantile = as.character(regent_english_quantile)) %>%
+  mutate(regent_english_quantile = ifelse(is.na(regent_english_quantile),"Unknown", regent_english_quantile))%>%
+  select(-Regent_English)
+
+#Language
+regent_just_language <- regents %>%
+  filter(!is.na(Regent_Language)) %>%
+  mutate(Regent_Language=as.numeric(Regent_Language))%>%
+  select(student_id_scram,year,Regent_Language)
+ 
+regent_just_language <- regent_just_language %>%
+   within(regent_language_quantile <- as.integer(cut(Regent_Language, quantile(Regent_Language, probs=0:10/10, na.rm=TRUE), include.lowest=TRUE)))
+
+student_regents_quantile <-
+  left_join(student_regents_quantile, regent_just_language, by=c("student_id_scram", "year")) %>%
+  mutate(regent_language_quantile = as.character(regent_language_quantile)) %>%
+  mutate(regent_language_quantile = ifelse(is.na(regent_language_quantile),"Unknown", regent_language_quantile))%>%
+  select(-Regent_Language)
+
+#History
+
+regent_just_history <- regents %>%
+  filter(!is.na(Regent_History)) %>%
+  mutate(Regent_History=as.numeric(Regent_History))%>%
+  select(student_id_scram,year,Regent_History)
+ 
+regent_just_history <- regent_just_history %>%
+   within(regent_history_quantile <- as.integer(cut(Regent_History, quantile(Regent_History, probs=0:10/10, na.rm=TRUE), include.lowest=TRUE)))
+
+student_regents_quantile <-
+  left_join(student_regents_quantile, regent_just_history, by=c("student_id_scram", "year")) %>%
+  mutate(regent_history_quantile = as.character(regent_history_quantile)) %>%
+  mutate(regent_history_quantile = ifelse(is.na(regent_history_quantile),"Unknown", regent_history_quantile))%>%
+  select(-Regent_History)
+
+#Science 
+
+regent_just_science <- regents %>%
+  filter(!is.na(Regent_Science)) %>%
+  mutate(Regent_Science=as.numeric(Regent_Science))%>%
+  select(student_id_scram,year,Regent_Science)
+ 
+regent_just_science <- regent_just_science %>%
+   within(regent_science_quantile <- as.integer(cut(Regent_Science, quantile(Regent_Science, probs=0:10/10, na.rm=TRUE), include.lowest=TRUE)))
+
+student_regents_quantile <-
+  left_join(student_regents_quantile, regent_just_science, by=c("student_id_scram", "year")) %>%
+  mutate(regent_science_quantile = as.character(regent_science_quantile)) %>%
+  mutate(regent_science_quantile = ifelse(is.na(regent_science_quantile),"Unknown", regent_science_quantile))%>%
+  select(-Regent_Science)
+
+
+#RCT
+regent_just_rct <- regents %>%
+    select(student_id_scram,year,Regent_RCT) %>%
+    mutate(regent_rct_factor = ifelse(is.na(Regent_RCT),"Unknown", Regent_RCT))%>%
+    select(-Regent_RCT)
+student_regents_quantile <- left_join(student_regents_quantile, regent_just_rct, by=c("student_id_scram", "year"))
+
+
+save(student_regents_quantile,file='/data/nycdoe/clean_data/student_regents_quantile.Rdata')
+
+
+```
+
+```{r}
+```
+
+```{r}
+```
+
+```{r}
+```
+
