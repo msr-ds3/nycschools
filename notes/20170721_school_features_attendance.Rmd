@@ -1,0 +1,121 @@
+---
+title: "School attendance"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(scales)
+
+#load bio data
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+JuneBio <- map_df(files, read_csv_with_year)
+
+bio_data <- JuneBio
+
+#save bio data
+save(bio_data, file = "/data/nycdoe/clean_data/bio_data.Rdata")
+```
+
+```{r}
+days <- bio_data %>% select(student_id_scram, contains("days"), year, dbn) 
+
+days_only <-days %>% select(student_id_scram, year, dbn, contains("days"))
+
+days_only <- days_only %>% mutate(fall_days_absent = as.numeric(fall_days_absent))
+
+days_only <- days_only %>% mutate(spring_days_absent = as.numeric(spring_days_absent))
+
+days_only <- days_only %>% mutate(spring_days_present = as.numeric(spring_days_present))
+
+days_only <- days_only %>% mutate(fall_days_present = as.numeric(fall_days_present))
+
+days_only <- days_only %>% mutate(days_pres = as.numeric(days_pres))
+
+days_abs_only_df <- days_only %>% select(fall_days_absent, spring_days_absent, days_abs)
+
+days_pres_only_df <- days_only %>% select(fall_days_present, spring_days_present, days_pres)
+
+totalAbsent <- rowSums(days_abs_only_df, na.rm = TRUE)
+
+totalPresent <- rowSums(days_pres_only_df, na.rm = TRUE)
+
+totalAbsent <- data.frame(totalAbsent)
+totalPresent <- data.frame(totalPresent)
+
+days_only_summed <- cbind(days_only, totalAbsent, totalPresent)
+
+all_days <- days_only_summed %>% select(totalPresent, totalAbsent)
+
+total_School_days <- rowSums(all_days, na.rm = TRUE)
+
+days_only_summed <- cbind(days_only_summed, total_School_days)
+
+##save this table 
+save(days_only_summed, file = "/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+
+```
+
+
+```{r}
+
+load("/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+
+days_only_summed %>% group_by(year) %>% summarise(maxDays = max(total_School_days))
+
+days_only_summed %>% filter(totalPresent >200)
+
+bio_data %>% filter(student_id_scram == 624232710	)
+
+days_only_summed %>% filter(total_School_days ==0)
+
+highSchoolPresRate <- days_only_summed %>% group_by(dbn, year) %>% summarise(presentRate =mean(totalPresent/total_School_days, na.rm = TRUE))
+
+highSchoolPresRate <- highSchoolPresRate %>% mutate(boro = substr(dbn, 3, 3))
+highSchoolPresRate <- highSchoolPresRate %>% mutate(district = substr(dbn, 1, 2))
+highSchoolPresRate
+
+highSchoolPresRate %>% filter(district<=32) %>% group_by(boro) %>% summarise(attRate = mean(presentRate, na.rm = TRUE))
+
+#save att rate by school
+
+#save att rate by district
+
+#save att by school
+
+#follow this link for NYC att rate info brken down by boro district and year: Must be opened with IE
+# http://schools.nyc.gov/AboutUs/schools/data/stats/arreports.htm
+
+```
+#Plot findings
+```{r}
+days_only_summed %>% ggplot(aes(x= total_School_days)) + geom_histogram()+ scale_y_continuous(labels = comma, limits = c(NA, 1500000))
+
+```
+#by boro
+```{r}
+highSchoolPresRate %>% ggplot(aes(x= presentRate)) + geom_histogram()
+
+#days_only_summed %>% ggplot(aes( x = totalPresent)) + geom_histogram()
+
+```
+#by year
+```{r}
+highSchoolPresRate %>% group_by(dbn) %>% summarise(avg = mean(presentRate, na.rm = TRUE)) %>% ggplot(aes(x = avg)) + geom_histogram()
+```
+
+
+
