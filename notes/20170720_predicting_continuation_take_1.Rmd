@@ -1,0 +1,253 @@
+---
+title: "20170720_predicting_continuation_take_1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Automated Guidance Counselor
+##Predict if a student will continue to the next grade.
+
+```{r cars}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(boot)
+library(glmnet)
+library(tidyverse)
+library(scales)
+library(ROCR)
+
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+
+bios1 <- map_df(files, read_csv_with_year)
+```
+
+Tidy up June Bios data for modeling.
+```{r}
+bios2 <-
+  bios1 %>%
+  filter(grade_level!="AD", grade_level!="IN") %>%
+  mutate(grade_level=ifelse(grade_level=="0K", 0, 
+                            ifelse(grade_level=="PK", -1, 
+                                   as.numeric(grade_level)))) %>%
+  mutate(disability=ifelse(is.na(disability), 'ND', disability)) %>%
+  mutate(perc_attendance=
+           ifelse(is.na(days_abs),
+                  (as.numeric(fall_days_present)+as.numeric(spring_days_present))/(fall_days_absent+spring_days_absent+as.numeric(fall_days_present)+as.numeric(spring_days_present)),
+                                (days_pres+days_released)/(days_pres+days_abs+days_released)))
+
+bios2 %>% 
+  summarise(p=sum(is.na(perc_attendance))/n())
+```
+
+7% of our attendances are missing. For now, we are going to drop those rows. Later, we'll try bucketing attendance?
+
+```{r}
+bios3 <-
+  bios2 %>%
+  filter(!is.na(perc_attendance)) 
+
+bios4 <-
+  bios3 %>%
+  group_by(student_id_scram) %>%
+  arrange(year) %>%
+  mutate(did_continue=ifelse(!is.na(lead(grade_level)) & grade_level == lead(grade_level) - 1, 1, 0)) %>%
+  ungroup() %>%
+  mutate(grade_level=as.character(grade_level), year=as.character(year))
+
+bios5 <-
+  bios4 %>%
+  select(did_continue, everything()) %>%
+  filter(year %in% c("2011"))
+```
+Note: 2012-2014 don't list disability, so can't use ONLY those years with one other and have disability as a feature in the model.
+
+Create test and train sets.
+```{r}
+sample_size <- floor(0.80 * nrow(bios5))
+
+set.seed(17)
+train_ind <- sample(seq_len(nrow(bios5)), size=sample_size)
+
+train <- bios5[train_ind, ]
+test <- bios5[-train_ind, ]
+```
+
+Model #1.
+```{r}
+train_with_features <-
+  train %>%
+  select(did_continue, grade_level, sex, ethnicity, home_lang, pob_code, ell, swd, disability, poverty, perc_attendance) %>%
+  na.omit()
+
+model_data <- train_with_features %>%
+  group_by_at(setdiff(names(train_with_features), "did_continue")) %>%
+  summarize(yes = sum(did_continue), no = n() - sum(did_continue))
+
+# options(na.action='na.pass')
+X_train <- model.matrix(~ grade_level + sex + ethnicity + ell + disability + poverty + perc_attendance, data=model_data)
+#X_train <- model.matrix(~grade_level, data=model_data)
+y_train <- cbind(model_data$no, model_data$yes)
+
+model_1 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+##Evaluating model_1.
+
+Distribution of our predictions.
+```{r}
+data.frame(p=as.numeric(predict(model_1, X_train, type="response")) ) %>% 
+  ggplot(aes(x=p)) + 
+  geom_histogram()
+```
+
+So it looks like most students we are predicting will stay in the system, and a handful we are predicting will definitely drop out, with only a few in the middle that we are unsure about.
+
+Calculating accuracy of our model.
+```{r}
+predictions_model_1 <-
+  data.frame(y_train) %>%
+  merge(data.frame(predict(model_1, X_train, type="response")), by="row.names") 
+
+colnames(predictions_model_1)<-c("Row.names", "no", "yes", "p")
+
+model_1_stats <-
+  predictions_model_1 %>%
+  mutate(total=yes+no, num_correct=yes*(p>=0.5) + no*(p<0.5))
+  
+accuracy <-
+  model_1_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(yes)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_1_stats %>%
+  filter(p>=0.5) %>%
+  summarise(prec=sum(yes)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_1_stats %>%
+  summarise(tpr=sum(yes*(p>=0.5))/sum(yes))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_1_stats %>%
+  summarise(fpr=sum(no*(p>=0.5))/sum(no))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_1_stats %>%
+  group_by(predicted=round(p*10)/10) %>%
+  summarise(num=sum(total), actual=sum(yes)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 1', x='Predicted probability that student will continue', y= 'Percent of students that actually continued', size='Number of students')
+```
+
+ROC curve
+```{r}
+roc_data_1 <- data.frame(matrix(NA, nrow = 1000, ncol = 2))
+colnames(roc_data_1) <- c("tpr", "fpr")
+
+for (i in 1:1000) {
+  thresh=i/1000
+  temp <-
+    model_1_stats %>%
+    summarise(tpr=sum(yes*(p>=thresh))/sum(yes), fpr=sum(no*(p>=thresh))/sum(no))
+
+  roc_data_1[i, 'tpr'] <- temp[1, 1]
+  roc_data_1[i, 'fpr'] <- temp[1, 2]
+}
+
+roc_data_1 %>%
+  ggplot(aes(x=fpr, y=tpr)) +
+  geom_line() +
+  xlim(0, 1) +
+  geom_abline(linetype='dashed')
+```
+
+Calculating the AUC
+```{r}
+auc <-
+  model_1_stats %>%
+  summarise(auc=mean(p>=0.5))
+
+auc
+```
+Is this correct?
+
+##Evaluating model_2.
+
+Joining in student performance data.
+```{r}
+load('/data/nycdoe/clean_data/actual_stud_perf.Rdata')
+student_performance <-
+  student_performance %>%
+  mutate(year=as.character(year))
+
+bios_with_student_perf <-
+  bios4 %>%
+  mutate(student_id_scram=as.character(student_id_scram)) %>%
+  left_join(student_performance, by=c('year', 'student_id_scram'))
+
+bios_with_student_perf_2 <-
+  bios_with_student_perf %>%
+  filter(year=="2011")
+
+data_with_features_2 <-
+  bios_with_student_perf_2 %>%
+  select(did_continue, grade_level, sex, ethnicity, home_lang, pob_code, ell, swd, disability, poverty, perc_attendance, ela_perf_level, math_perf_level, sci_perf_level, soc_perf_level, regents_english, regents_language, regents_history, regents_math, regents_RCT, regent_science, GPA)
+
+model_2_data <- 
+  data_with_features_2 %>%
+  group_by_at(setdiff(names(data_with_features_2), "did_continue")) %>%
+  summarize(yes = sum(did_continue), no = n() - sum(did_continue))
+
+# options(na.action='na.pass')
+#X <- model.matrix(~ grade_level + sex + ethnicity + ell + disability + poverty + perc_attendance + ela_perf_level + math_perf_level + sci_perf_level + soc_perf_level + regents_english + regents_language + regents_history + regents_math + regents_RCT + regent_science + GPA, data=model_2_data)
+
+X <- model.matrix(~grade_level+sex+ethnicity+ell+disability+poverty+perc_attendance+ela_perf_level, data=model_data)
+
+y <- cbind(model_2_data$no, model_2_data$yes)
+
+model_1 <- glmnet(X, y, family="binomial", lambda = 0)
+```
+
+### TO DO - Add in `graduated` to `did_continue` column - the same model that predicts if a 10th grader will continue will predict if a 12th grader will "continue" a.k.a. graduate.
+
+
+
+
+
+
+
+

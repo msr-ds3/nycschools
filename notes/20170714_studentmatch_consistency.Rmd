@@ -1,0 +1,418 @@
+---
+title: "20170714-Student Match Sanity Check"
+author: "David, Thoa"
+date: "7/14/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+june_biog_files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+hsaps_files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+```
+
+### Read and explore HSAPS data
+
+We will read data from HSAPS, then explore the inner consistencies, and drop certain columns that are not helpful.  
+
+```{r read-hsaps}
+# read hsaps data
+read_students_with_matches <- function(filename) {
+  print(filename)
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            final_disposition_round=col_character(),
+                                            opt_out_status=col_integer()))
+                                            # r3rank8=col_integer(),
+                                            # r3rank9=col_integer(),
+                                            # r3rank11=col_integer(),
+                                            # r2rank12=col_integer(),
+                                            # r1eligibility1=col_integer(),
+                                            # r1eligibility2=col_integer(),
+                                            # r1eligibility3=col_integer(),
+                                            # r1eligibility4=col_integer(),
+                                            # r1eligibility5=col_integer(),
+                                            # r1eligibility6=col_integer(),
+                                            # r1eligibility7=col_integer(),
+                                            # r1eligibility8=col_integer(),
+                                            # r1eligibility9=col_integer(),
+                                            # r1eligibility10=col_integer(),
+                                            # r1eligibility11=col_integer(),
+                                            # r1eligibility12=col_integer(),
+                                            # r2eligibility1=col_integer(),
+                                            # r2eligibility2=col_integer(),
+                                            # r2eligibility3=col_integer(),
+                                            # r2eligibility4=col_integer(),
+                                            # r2eligibility5=col_integer(),
+                                            # r2eligibility6=col_integer(),
+                                            # r2eligibility7=col_integer(),
+                                            # r2eligibility8=col_integer(),
+                                            # r2eligibility9=col_integer(),
+                                            # r2eligibility10=col_integer(),
+                                            # r2eligibility11=col_integer(),
+                                            # r2eligibility12=col_integer(),
+                                            # r3eligibility1=col_integer(),
+                                            # r3eligibility2=col_integer(),
+                                            # r3eligibility3=col_integer(),
+                                            # r3eligibility4=col_integer(),
+                                            # r3eligibility5=col_integer(),
+                                            # r3eligibility6=col_integer(),
+                                            # r3eligibility7=col_integer(),
+                                            # r3eligibility8=col_integer(),
+                                            # r3eligibility9=col_integer(),
+                                            # r3eligibility10=col_integer(),
+                                            # r3eligibility11=col_integer(),
+                                            # r3eligibility12=col_integer()))
+  df$year <- year
+  df <- df %>% 
+    select(year, student_id_scram, starts_with("opt_out_"), ends_with("match"), contains("final_disposition"), contains("match_accept"), ends_with("mp")) #contains("rank"), contains("priority"), contains("eligibility"), contains("programtype"))
+}
+```
+
+Regarding opt-out status, 17% of all the cases are NA's and almost 5% of all the cases did opt out.
+```{r opt-out}
+students_with_matches <- map_df(hsaps_files, read_students_with_matches)
+
+# There are 161,218 NA's and 45,402 students did opt out.
+students_with_matches %>%
+  group_by(opt_out_status) %>%
+  count()
+
+```
+
+As you will see here, there are nine distinct non-NA values for `final_disposition_round`. All 12 cases of `4` took place in 2005. 
+```{r finalized-round}
+students_with_matches %>%
+  group_by(final_disposition_round) %>%
+  count()
+students_with_matches %>%
+  filter(final_disposition_round == "4") # %>% distinct(year)
+```
+
+### Investigate `r1match_accept`
+
+Since this column only exists from 2005-2006 to 2008-2009, we want to read in those years only and evaluate whether or not this column is informative enough. It turns out a lot of the values are still NA's. We will drop this column from our table soon.
+```{r investigate-r1match_accept, message=FALSE, warning=FALSE, results="hide"}
+students_with_matches_2005_2009 <- map_df(hsaps_files[1:4], read_students_with_matches)
+sum(!is.na(students_with_matches_2005_2009$r1match_accept))
+## --> [1] 19,919 out of 360,171
+
+# sum(!is.na(students_with_matches$r1match_accept))
+# --> [1] 19,919 - this is just to make really sure that r1match_accept does not exist elsewhere.
+```
+
+### Investigate `final_disposition_dbn`
+
+Since this column only exists from 2009-2010 to 2013-2014, we want to read in those years only and evaluate whether or not this column is informative enough. It turns out non-NAs dominate, which is good news. We will keep this column.
+```{r investigate-final-disposition-dbn, message=FALSE, warning=FALSE, results='hide'}
+students_with_matches_2009_2014 <- map_df(hsaps_files[5:9], read_students_with_matches)
+sum(!is.na(students_with_matches_2009_2014$final_disposition_dbn))
+# --> [1] 387,767 out of 411,385
+```
+
+### Investigate `opt_out_reason`
+
+Similarly, we use data from 2009-2010 to 2013-2014 to explore opt-out reasons and its helpfulness.
+
+1. There are 7 unique non-NA values.
+
+2. Where there are non-NA values, `opt_out_status` = 1 which is as expected. However, in these rows, the presence of non-NAs in other columns seems unpredictable. (See our comments which reflect the first 30 returned rows) 
+
+3. NA's dominate, so we will drop this column from our main table.
+```{r investigate-opt-out-reason, results='hide'}
+unique(students_with_matches_2009_2014$opt_out_reason)
+# There are 7 unique non-NA values:
+# 1. "Opt-out:  Not attending a NYC public school"
+# 2. "Opt-Out:  Attending a D75 program"
+# 3. "Remain in Current School (RCS)"
+# 4. "Opted out due to no offer/choices (Priv/Paroch student)"
+# 5. "Opted out due to no response (Priv/Paroch student)"
+# 6. "Opted out due to no response (Private student)"
+# 7. "Opted out due to no response (Public student)"
+
+students_with_matches_2009_2014 %>%
+  filter(!is.na(opt_out_reason))   #opt_out_status is all 1, which is consistent.
+# Some of these students have `r3match`, corresponding with `final_disposition`, and `final_disposition_round` is mostly set to Supplementary Round. 
+# A few others have `r2match`, and the round for final disposition is Main Round.
+# One has `r1match`, but no final-disp related values.
+# A few have Specialized Round, and one of them has `r3match` value while another has nothing related to r*match. Still, they all have values for `final_disposition`.
+
+
+# students_with_matches_2009_2014 %>%
+#   filter(!is.na(opt_out_reason) & !is.na(r3mp))  #74 rows for r1mp, 545 rows for r2mp, 422 rows for r3mp
+
+
+sum(!is.na(students_with_matches_2009_2014$opt_out_reason))
+# --> [1] 23,521 out of 411,385
+```
+### Investigate `r*mp`, `r*_mp`, and `r*_match`
+
+1. `r*mp` have non-NA values in a small fraction of the table, and those belong to years 2009 to 2013. (Meanwhile, the documentation says these variables exist in all years.)
+2. `r*_mp` have non-NA values in an even smaller fraction of the table, and those belong to years 2014 to 2015. (Meanwhile, the documentation does not have these variables.)
+3. `r*_match` have non-NA values in not-so-small number of rows, but those belong to years 2014 and 2015 only. (Meanwhile, the documentation does not have these variables.) Considering 161,218 observations in these two years, the number of non-NA `r1_match` is quite significant. `r*_match` also seems to have some correlations with `final_disposition_round` (see analysis below).
+
+From these investigations, we decide to drop `r*mp` and `r*_mp` from our main table. We will also drop `r*_match` but we think it could be reserved for some later specific analysis regarding only year 2014 and year 2015.  
+
+```{r investigate-mp-p1, results='hide'}
+
+# students_with_matches %>%
+#   filter(!is.na(r1_match)) %>%
+#   distinct(year)
+
+#############
+sum(!is.na(students_with_matches$r1mp))
+# --> [1] 922, only exists in four years: 2010-2013 
+sum(!is.na(students_with_matches$r2mp))
+# --> [1] 11469, only exists in five years: 2009-2013 
+sum(!is.na(students_with_matches$r3mp))
+# --> [1] 7027, only exists in two years: 2009-2010 
+
+
+############
+# These two variables have non-NA's in only two years: 2014 and 2015.
+sum(!is.na(students_with_matches$r1_mp))
+# --> [1] 198
+sum(!is.na(students_with_matches$r2_mp))
+# --> [1] 5773
+
+# And there are only 8 instances where their values are BOTH non-NA.
+sum(!is.na(students_with_matches$r1_mp) & !is.na(students_with_matches$r2_mp))
+# --> [1] 8
+```
+
+```{r investigate-mp-p2}
+students_with_matches %>%
+  filter(!is.na(r1_mp) & !is.na(r2_mp)) %>%
+  select(-opt_out_status, -(r1match:r3match), -r1match_accept, -(r1mp:r3mp))  #exclude these columns because they are all NA's.
+# For these 8 students, they have `final_disposition` (program code) in Main Round. This `final_disposition` value all matches `r2_mp` value. The `r1_mp` value or may not match the `r2_mp` value.
+```
+
+```{r investigate-mp-p3, results='hide'}
+# These two variables have non-NA's in only two years: 2014 and 2015. Considering 161,218 observations in these two years, the number of non-NA `r1_match` is quite significant.
+sum(students_with_matches$year %in% c(2014, 2015), na.rm = T)
+sum(!is.na(students_with_matches$r1_match))
+# --> [1] 140,428
+sum(!is.na(students_with_matches$r2_match))
+# --> [1] 19,025
+```
+
+Observe below how much "Specialized Round" dominates the 140,428 instances of non-NA `r1_match` values.
+```{r investigate-r1_match, echo=FALSE}
+(temp_r1_match <-
+  students_with_matches %>%
+  filter(!is.na(r1_match)) %>%
+  select(-opt_out_status) %>% #exclude this column because it all yields NA's.
+  select(student_id_scram, r1_match, r2_match, r1_mp, r2_mp, final_disposition, final_disposition_round, final_disposition_dbn, opt_out_reason, year)) %>%  #re-ordering the columns so that it's easier to compare the values per row.
+  print(width = Inf)
+temp_r1_match %>%
+  group_by(final_disposition_round) %>%
+  count()
+```
+
+
+Then observe how much "Main Round" dominates the 19,025 instances of non-NA `r2_match` values.
+```{r investigate-r2_match, echo=FALSE}
+(temp_r2_match <-
+  students_with_matches %>%
+  filter(!is.na(r2_match)) %>%
+  select(-opt_out_status) %>% #exclude this column because it all yields NA's.
+  select(student_id_scram, r1_match, r2_match, r1_mp, r2_mp, final_disposition, final_disposition_round, final_disposition_dbn, opt_out_reason, year))  #re-ordering the columns so that it's easier to compare the values per row.
+temp_r2_match %>%
+  group_by(final_disposition_round) %>%
+  count()
+```
+
+### Investigate `r*match`
+
+1. There are a lot of NA's.
+
+2. Non-values in each round (per student) do not always match (see the comparison between the "both are non-NA" count and the "both are the same" count.)
+
+From these inconsistencies in `r1match`, `r2match`, and `r3match`, we wonder how the matching process actually works, and how these values are determined.
+
+However, for now, we will still keep these columns because all other instances of numeric-round-match have been dropped.
+```{r investigate-match, results='hide'}
+
+# students_with_matches %>%
+#   filter(!is.na(r3match)) %>%
+#   distinct(year)
+
+################
+sum(!is.na(students_with_matches$r1match))
+# --> [1] 29,989, only exists in six years: 2005 to 2010
+sum(!is.na(students_with_matches$r2match))
+# --> [1] 458,428, exists in nine years: 2005 to 2013
+sum(!is.na(students_with_matches$r3match))
+# --> [1] 247,946, only exists in six years: 2005 to 2010
+
+###############
+sum(!is.na(students_with_matches$r1match) & !is.na(students_with_matches$r2match))
+# --> [1] 14,973
+sum((students_with_matches$r1match == students_with_matches$r2match), na.rm = T)
+# --> [1] 14,846
+
+sum(!is.na(students_with_matches$r2match) & !is.na(students_with_matches$r3match))
+# --> [1] 214,639
+sum((students_with_matches$r2match == students_with_matches$r3match), na.rm = T)
+# --> [1] 214,023
+
+sum(!is.na(students_with_matches$r1match) & !is.na(students_with_matches$r2match) & !is.na(students_with_matches$r3match))
+# --> [1] 14,183
+sum((students_with_matches$r1match == students_with_matches$r2match & students_with_matches$r2match == students_with_matches$r3match), na.rm = T)
+# --> [1] 14,137
+```
+### Clean up HSAPS
+
+After all the evaluations above, we now tidy our main hsaps data frame before moving on to read the June Biog data.
+```{r clean-up-hsaps}
+students_with_matches <-
+  students_with_matches %>%
+  select(-(r1mp:r2_mp), -opt_out_reason, -r1match_accept)
+```
+
+## Read June Biog data
+
+We only read in rows with `grade_level` = 9.
+
+```{r read-junebiog}
+# read juneBiog data
+read_students_hs <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            grade_level=col_character()))
+  df$year <- year
+  df <- df %>% 
+    filter(grade_level == "09") %>%
+    select(year, student_id_scram, grade_level, dbn) %>%
+    mutate(hs_code = substring(dbn, 3))
+}
+students_hs <- map_df(june_biog_files, read_students_hs)
+summary(students_hs)
+```
+
+## Consistency check
+
+### Does match result say the same for each student over years?
+
+Check if the match result is unique for each student across years, then plot, then print out the fractions of how many unique match results each round has.
+
+This check helps us ensure the sanity in the case of some student_id's are re-entered multiple times over years even though they already went to high school.
+
+However, later on, we think that it's NOT completely insane for one student _id to have different match results in different years. A student might enter the application process, get matched, but then get stuck in grade 8th and apply again next year. If this is the case, she/he might get a different school than the one of previous year.
+
+```{r match-consistency}
+
+matches <- 
+  students_with_matches %>%
+  group_by(student_id_scram) %>%
+  summarize(length(unique(r1match)), length(unique(r2match)), length(unique(r3match))) %>%
+  gather("round", "num_unique", 2:4)
+
+matches %>%  
+  ggplot(aes(x = num_unique, fill=round), alpha = 0.25) +
+  geom_histogram(position = "dodge", bins = 6) +
+  labs(x = "Number of cases",
+       y = "Number of distinct match result across all years",
+       fill = "") +
+  scale_fill_discrete(labels = c("Round 1", "Round 2", "Round 3"))
+
+matches %>%
+  group_by(round) %>%
+  summarize(frac_1 = sum(num_unique == 1)/n(),
+            frac_2 = sum(num_unique == 2)/n(),
+            frac_3 = sum(num_unique == 3)/n(),
+            frac_4 = sum(num_unique == 4)/n(),
+            frac_5 = sum(num_unique == 5)/n())
+```
+
+### Match result vs. Actual 9th-grade school
+
+Because the lengths of `students_hs` table and of `students_with_matches` table do not match (1,095,091 vs. 932,774), we want to check for duplicates on `student_id_scram`:
+
+```{r duplicate-junebiog}
+duplicate_junebiog <- students_hs %>%
+  group_by(student_id_scram) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  filter(n > 1)
+duplicate_junebiog %>%
+  select("num_duplicates_over_year" = n, student_id_scram) %>%
+  group_by(num_duplicates_over_year) %>%
+  summarize(num_students_with_duplicates = n()) 
+```
+
+Are these numbers so strange? Can there be someone staying in 9th grade over 5,6,7, or even 8 years??
+
+We are trying to drop the `year` column and collapse the duplicates on `student_id_scram` but are unable to. From the error message, we learn that there are 909,427 unique student id's in this `student_hs` table. Still, that does not match 932,774 the length of `students_with_matches`, hence we will perform duplicate check on this table as well.
+
+Note: we also tried to collapse student id's in `students_with_matches` (also error!) and learned that there are 912,046 unique student ids'. However, we are hesitant to cast out all the duplicates because some students might re-apply. 
+
+```{r duplicate-hsaps}
+# This code does not work and yields error.
+# students_hs <-
+#   students_hs %>%
+#   select(-year) %>%
+#   mutate(student_id_scram = unique(student_id_scram)))
+
+duplicate_hsaps <-
+  students_with_matches %>%
+  group_by(student_id_scram) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  filter(n > 1)
+# students_with_matches %>%
+#   filter(student_id_scram %in% c("146472629", "130302023"))
+#   arrange(student_id_scram)
+summary(duplicate_hsaps)
+duplicate_hsaps %>%
+  select("num_duplicates_over_year" = n, student_id_scram) %>%
+  group_by(num_duplicates_over_year) %>%
+  summarize(num_students_with_duplicates = n())
+```
+
+Why did some students re-apply?? The data is supposed to have only 8th grader applying for 9th grade, and 9th graders applying to 10th grades will not be included (see documentation).
+
+Putting aside all these crazy duplicates and inconsistencies, we now `inner_join` the 2 tables on `student_id_scram` to get rid of duplicates and unmatched values. 
+Since our purpose is to compare match result and actual enrollment, we care about column `dbn` in JuneBiog and `final_disposition_dbn` in HSAPS. However, as said above, the latter column only exists from 2009-10 to 2013-14. 
+
+The join results in 387,303 rows. This number matches very close to 387,767 the number of instances where `final_disposition_dbn` are not NA's. 
+However, pay attention to the year differences between the 2 tables - we include a plot of yeardiff distribution.
+
+```{r join-9th-and-match}
+(nineth_vs_match <-
+  inner_join(students_hs, students_with_matches, by=c("student_id_scram")) %>%
+  filter(dbn == final_disposition_dbn) %>%
+  mutate(yeardiff = year.x - year.y) %>%
+  select(year.x, year.y, yeardiff, student_id_scram, dbn, final_disposition_dbn, final_disposition_round, final_disposition))
+summary(nineth_vs_match)
+nineth_vs_match$yeardiff %>% 
+  data.frame() %>%
+  ggplot() +
+  geom_histogram(aes(x = .)) +
+  scale_y_log10("Number of cases", labels = prettyNum) +
+  xlab("Year difference")
+```
+
+It quite makes sense that the majority of yeardiff values are 1, because you get matched in the fall and June Biog records you with your 9th grade school in the spring of next year. There are 351,105 rows fall into this category.
+
+```{r join-shift-year, include=FALSE}
+(yearshift_nineth_vs_match <-
+  students_hs %>%
+  mutate(year = year - 1) %>%
+  inner_join(students_with_matches, by=c("student_id_scram", "year")) %>%
+  filter(dbn == final_disposition_dbn) %>%
+  select(year, student_id_scram, dbn, final_disposition_dbn, final_disposition_round, final_disposition, r1match:r3match))
+```
+
+However, by curiosity, we keep the year value as original in both tables and do the join. There is ONE student returned! How can a student currently in their 9th grade at school X apply for the same school?
+
+```{r strict-join-on-year}
+(strict_nineth_vs_match <-
+  inner_join(students_hs, students_with_matches, by=c("student_id_scram", "year")) %>%
+  filter(dbn == final_disposition_dbn) %>%
+  select(year, student_id_scram, dbn, final_disposition_dbn, final_disposition_round, final_disposition, r1match:r3match)) %>%
+  print(width = Inf)
+```
+
