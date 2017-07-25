@@ -1,0 +1,144 @@
+---
+title: "Ethnicity by school"
+author: "Rivka"
+date: "7/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+
+#load june_bio (nothing has been done to this df--not cleaned)
+
+load("/data/nycdoe/clean_data/bio_data.Rdata")
+
+
+```
+clean bio data (remove na student_ids)
+```{r}
+bio_data <- bio_data %>% filter(!is.na(student_id_scram))
+
+```
+
+Get number students in each school across all years
+```{r}
+
+bio_data %>% group_by(dbn) %>% summarise(totalNumStudents = n())
+
+```
+Plot number in each school ##ERROR
+```{r}
+bio_data %>% 
+  group_by(dbn, student_id_scram) %>% 
+  ggplot(aes(x = dbn)) + geom_histogram(stat = count)
+
+```
+
+number schools in our bio data file--2,312 (!!!!!!!!!!!!!!)
+```{r}
+nrow(bio_data %>% group_by(dbn) %>% 
+  summarise())
+
+```
+
+#ERROR I think 0 included everything...staggering in weird way
+plot number of schools with same num students
+```{r}
+bio_data %>% group_by(dbn) %>% 
+  summarise(totalNumStudents = n()) %>% 
+  ggplot(aes(x = totalNumStudents)) + 
+  geom_histogram() +
+  ylab("Num schools")
+```
+
+plot schools with same number students facet by year
+```{r}
+bio_data %>% group_by(dbn, year) %>% 
+  summarise(totalNumStudents = n()) %>% 
+  ggplot(aes(x = totalNumStudents)) + 
+  geom_histogram() +
+  ylab("Num schools") + 
+  facet_wrap(~year)
+
+```
+
+plot number in each school facet by year
+```{r}
+bio_data %>% group_by(dbn, year) %>% 
+  summarise(totalNumStudents = n()) %>% 
+  ggplot(aes(y = totalNumStudents, x = dbn)) + 
+  geom_bar(stat = "identity") +
+  ylab("Num schools") + 
+  facet_wrap(~year)
+
+```
+
+count number of students each ethnicity over all years 
+```{r}
+bio_data %>% group_by(student_id_scram, ethnicity) %>% summarise() %>% group_by(ethnicity) %>% summarise(count = n())
+```
+count ethnicity in each school
+```{r}
+#count Asian
+asian_count <- bio_data %>% group_by(dbn, ethnicity == 'Asian', year)%>% summarise(count = n()) %>% filter(`ethnicity == "Asian"` == TRUE)
+
+#count Black
+black_count <- bio_data %>% group_by(dbn, ethnicity == 'Black', year)%>% summarise(count = n()) %>% filter(`ethnicity == "Black"` == TRUE)
+
+#count Hispanic
+hispanic_count <- bio_data %>% group_by(dbn, ethnicity == 'Hispanic', year)%>% summarise(count = n()) %>% filter(`ethnicity == "Hispanic"` == TRUE)
+
+#count native american
+native_american_count <- bio_data %>% group_by(dbn, ethnicity == 'Native American', year)%>% summarise(count = n()) %>% filter(`ethnicity == "Native American"` == TRUE)
+
+#white
+white_count <- bio_data %>% group_by(dbn, ethnicity == 'White', year)%>% summarise(count = n()) %>% filter(`ethnicity == "White"` == TRUE)
+
+#multi-racial
+multi_count <- bio_data %>% group_by(dbn, ethnicity == 'Multi-Racial', year)%>% summarise(count = n()) %>% filter(`ethnicity == "Multi-Racial"` == TRUE)
+
+```
+number students in each dbn each year
+```{R}
+num_students_dbn <- bio_data %>% group_by(dbn, year) %>% summarise(totalNumStudents = n())
+```
+
+join the race counts with student count by dbn and year
+```{r}
+all_counts <- inner_join(asian_count, hispanic_count, by = c("dbn","year"))
+
+all_counts <- inner_join(all_counts, white_count, by = c("dbn", "year"))
+
+all_counts <- inner_join(all_counts, black_count, by = c("dbn", "year"))
+all_counts <- inner_join(all_counts, native_american_count, by = c("dbn", "year"))
+all_counts <- inner_join(all_counts, multi_count, by = c("dbn", "year"))
+
+#rename cols
+colnames(all_counts)[4] <- "asian_count"
+colnames(all_counts)[6] <- "hispanic_count"
+colnames(all_counts)[8] <- "white_count"
+colnames(all_counts)[10] <- "black_count"
+colnames(all_counts)[12] <- "native_amer_count"
+colnames(all_counts)[14] <- "multi_count"
+
+all_counts <- all_counts %>% ungroup() %>% select(c(1,3,4,6,8,10,12,14))
+
+all_counts <- inner_join(num_students_dbn, all_counts, by = c("dbn", "year"))
+
+```
+Get percents for those values
+```{r}
+all_counts <- all_counts %>% mutate(percentAsian = asian_count/totalNumStudents *100, 
+                                    percentBlack = black_count/totalNumStudents*100, 
+                                    percentWhite = white_count/totalNumStudents*100, 
+                                    percentHispanic = hispanic_count/totalNumStudents*100, 
+                                    percentNativeAmer = native_amer_count/totalNumStudents*100, 
+                                    percentMulti =  multi_count/totalNumStudents*100)
+
+```
+

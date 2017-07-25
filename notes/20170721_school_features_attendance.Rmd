@@ -28,12 +28,15 @@ bio_data <- JuneBio
 
 #save bio data
 save(bio_data, file = "/data/nycdoe/clean_data/bio_data.Rdata")
+
+load("/data/nycdoe/clean_data/bio_data.Rdata")
 ```
 
 ```{r}
-days <- bio_data %>% select(student_id_scram, contains("days"), year, dbn) 
+days <- bio_data %>% select(student_id_scram, contains("days"), year, dbn, grade_level) 
 
-days_only <-days %>% select(student_id_scram, year, dbn, contains("days"))
+days_only <-days %>% select(student_id_scram, year, dbn, contains("days"), grade_level )
+
 
 days_only <- days_only %>% mutate(fall_days_absent = as.numeric(fall_days_absent))
 
@@ -64,33 +67,62 @@ total_School_days <- rowSums(all_days, na.rm = TRUE)
 
 days_only_summed <- cbind(days_only_summed, total_School_days)
 
+#get rid of pre-k
+days_only_summed  <- days_only_summed %>% mutate(grade_level = ifelse(grade_level == "k", "00", grade_level))
+
+days_only_summed  <- days_only_summed %>% mutate(grade_level = ifelse(grade_level == "pk", "-1", grade_level))
+
+days_only_summed <- days_only_summed %>% mutate(grade_level = as.integer(grade_level))
+
+days_only_summed <- days_only_summed %>% filter(grade_level >= 0 & !is.na(student_id_scram))
+
 ##save this table 
-save(days_only_summed, file = "/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+save(days_only_summed, file = "/data/nycdoe/clean_data/att_rate.Rdata")
 
 ```
 
 
 ```{r}
 
-load("/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+#load("/data/nycdoe/clean_data/att_rate.Rdata")
 
-days_only_summed %>% group_by(year) %>% summarise(maxDays = max(total_School_days))
+########################
+days_only_summed %>% group_by(year, dbn) %>% summarise(maxDays = max(total_School_days))
+########################
 
-days_only_summed %>% filter(totalPresent >200)
 
-bio_data %>% filter(student_id_scram == 624232710	)
+#2 students have more than 200 days of school recorded!!! get rid of them
+days_only_summed <-
+days_only_summed %>% filter(totalPresent < 200)
 
-days_only_summed %>% filter(total_School_days ==0)
+#bio_data %>% filter(student_id_scram == 624232710)
 
-highSchoolPresRate <- days_only_summed %>% group_by(dbn, year) %>% summarise(presentRate =mean(totalPresent/total_School_days, na.rm = TRUE))
+#drop students who never showed to school and never have attendence recorded
+days_only_summed <- days_only_summed %>% filter(total_School_days > 0)
 
-highSchoolPresRate <- highSchoolPresRate %>% mutate(boro = substr(dbn, 3, 3))
-highSchoolPresRate <- highSchoolPresRate %>% mutate(district = substr(dbn, 1, 2))
-highSchoolPresRate
+SchoolPresRate <- days_only_summed %>% group_by(dbn, year) %>% summarise(presentRate =mean(totalPresent/total_School_days, na.rm = TRUE))
 
-highSchoolPresRate %>% filter(district<=32) %>% group_by(boro) %>% summarise(attRate = mean(presentRate, na.rm = TRUE))
+SchoolPresRate <- SchoolPresRate %>% mutate(boro = substr(dbn, 3, 3))
+SchoolPresRate <- SchoolPresRate %>% mutate(district = substr(dbn, 1, 2))
+SchoolPresRate
 
+SchoolPresRate %>% filter(district<=32) %>% group_by(boro) %>% summarise(attRate = mean(presentRate, na.rm = TRUE))
+
+SchoolPresRate %>% filter(dbn == '01M700')
+bio_data %>% filter(dbn == '01M700' )
+
+save(SchoolPresRate, file = "/data/nycdoe/clean_data/att_rate_per_school_with_year.Rdata")
+```
+
+```{r}
 #save att rate by school
+att_rate_per_school <- SchoolPresRate %>% group_by(dbn) %>% summarise(attRate = mean(presentRate, na.rm = TRUE))
+
+att_rate_per_school %>% filter(is.nan(attRate)) #GOOD JOB! no nan's!
+
+bio_data %>% group_by(dbn) %>% summarise()
+#######################################
+save(att_rate_per_school, file = "/data/nycdoe/clean_data/att_rate_per_school.Rdata")
 
 #save att rate by district
 
@@ -107,15 +139,66 @@ days_only_summed %>% ggplot(aes(x= total_School_days)) + geom_histogram()+ scale
 ```
 #by boro
 ```{r}
-highSchoolPresRate %>% ggplot(aes(x= presentRate)) + geom_histogram()
+SchoolPresRate %>% ggplot(aes(x= presentRate)) + geom_histogram()
 
 #days_only_summed %>% ggplot(aes( x = totalPresent)) + geom_histogram()
 
 ```
-#by year
+
 ```{r}
-highSchoolPresRate %>% group_by(dbn) %>% summarise(avg = mean(presentRate, na.rm = TRUE)) %>% ggplot(aes(x = avg)) + geom_histogram()
+SchoolPresRate %>% group_by(dbn) %>% summarise(avg = mean(presentRate, na.rm = TRUE)) %>% ggplot(aes(x = avg)) + geom_histogram()
 ```
 
+```{r}
+#num schools each year (in system)
+SchoolPresRate %>% ggplot(aes(x = year)) + geom_histogram()
+```
 
+```{r}
+SchoolPresRate %>% ggplot(aes(x= year, y = presentRate)) + geom_bar(stat = "identity")
+
+```
+# look at one dbn
+```{r}
+SchoolPresRate %>% filter(dbn == '01M015') %>% ggplot(aes(x = year, y = presentRate)) + geom_bar(stat = "identity")
+
+```
+#see averages by boro and year
+```{r}
+SchoolPresRate %>% group_by(boro, year) %>% summarize (avgAttRate = mean(presentRate, na.rm = TRUE)) %>%  ggplot(aes(x = year, y = avgAttRate)) + geom_bar(stat = "identity") + facet_grid(~boro)
+
+SchoolPresRate %>% filter(year> 2007) %>% group_by(boro) %>% summarise(avgRate = mean(presentRate, na.rm = TRUE))
+
+```
+see avgs by year
+```{r}
+SchoolPresRate %>% group_by(year, dbn) %>% summarise(avgAtt = mean(presentRate, na.rm = TRUE)) %>% ggplot(aes(x = avgAtt)) + geom_histogram() + facet_grid(~year)
+```
+#Compare to data online
+```{r}
+#compare to data online by boro
+#DOE_att_data <- read.csv("/home/rivka/file.csv")
+
+DOE_att_data <- read_delim("~/file.csv", "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+
+colnames(DOE_att_data)[12] <- "total"
+
+DOE_att_data<- cbind(DOE_att_data, c('M', 'X', 'K', 'Q', 'R', 'all'))
+
+colnames(DOE_att_data)[13] <- "BORO"
+
+boro_att <- SchoolPresRate %>% filter(year> 2007) %>% group_by(boro) %>% summarise(avgRate = mean(presentRate, na.rm = TRUE))
+
+DOE_total_boro <- DOE_att_data %>% select(total, BORO)
+
+DOE_total_boro <- DOE_total_boro %>% filter(BORO != "all")
+
+combo <- inner_join(DOE_total_boro, boro_att, by = c("BORO" = "boro"))
+
+combo %>% ggplot(aes(x = avgRate, y = total)) + geom_point() + geom_abline(intercept = 0, slope = 1)
+
+
+```
 
