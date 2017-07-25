@@ -1,0 +1,119 @@
+---
+title: "more features"
+author: "Keri and David"
+date: "7/24/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+
+#Reading in buncha relevant data frames
+load('/data/nycdoe/clean_data/student_perf_feature.Rdata')
+
+```
+Read in June Biog Data for grabbing year student_id and grade level 
+Then combining these two data frames together 
+```{r}
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, grade_level)
+}
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+grade_level <- map_df(files, read_june_with_year)
+
+stud_perf <- full_join(grade_level, student_performance, by= c("year","student_id_scram"))
+
+save(stud_perf, file = '/data/nycdoe/clean_data/stud_perf_v2.Rdata')
+```
+Quantile GPA
+```{r}
+stud_perf_GPA <-
+  stud_perf %>%
+  select(year,student_id_scram,GPA) %>%
+  filter(!is.na(GPA))
+stud_perf_GPA_v2<-
+  stud_perf_GPA %>%
+  within(quantiled_GPA <- as.integer(cut(GPA, quantile(GPA, probs=0:10/10), include.lowest=TRUE)))
+
+stud_perf_quantGPA <- full_join(stud_perf, stud_perf_GPA_v2, by=c("year","student_id_scram","GPA"))
+
+stud_perf_quantGPA <-
+  stud_perf_quantGPA %>% mutate(quantiled_GPA = ifelse(is.na(quantiled_GPA), "Missing", quantiled_GPA))
+
+save(stud_perf_quantGPA, file='/data/nycdoe/clean_data/stud_perf_quantiledGPA.Rdata')
+#add NAs later
+```
+Quantile Regents 
+```{r}
+#load in regents data
+load('/data/nycdoe/clean_data/student_regents_quantile.Rdata')
+stud_perf_quantiled <- full_join(stud_perf_quantGPA, student_regents_quantile, by=c("year","student_id_scram"))
+#combine regents quantile to full data set 
+```
+How many people test at a grade level different than their own
+Only applies to: ELA, Math, Sci, and Soc Exams
+```{r}
+#Social Studies
+graph1 <- stud_perf_quantGPA %>%
+  select(year, student_id_scram,grade_level,soc_grade_level,soc_perf_level) %>%
+  group_by(grade_level, soc_grade_level) %>%
+  count() %>% 
+  filter(!is.na(soc_grade_level)) %>% View
+  ggplot(aes(x=soc_grade_level, y = n)) +
+  geom_point() +
+  facet_wrap(~grade_level) +
+  labs(title = "Social Studies faceted by student grade level", x = "Exam Level", y = "Number of People who took the exam")
+plot(graph1)
+
+#Science
+graph2 <- stud_perf_quantGPA %>%
+  select(year, student_id_scram,grade_level,sci_grade_level,sci_perf_level) %>%
+  group_by(grade_level, sci_grade_level) %>%
+  count() %>% 
+  filter(!is.na(sci_grade_level)) %>%
+  ggplot(aes(x=sci_grade_level, y = n)) +
+  geom_point() +
+  facet_wrap(~grade_level)  +
+  labs(title = "Science faceted by student grade level", x = "Exam Level", y = "Number of People who took the exam")
+plot(graph2)
+
+#Math
+graph3 <- stud_perf_quantGPA %>%
+  select(year, student_id_scram,grade_level,math_test_grade,math_perf_level) %>%
+  group_by(grade_level, math_test_grade) %>%
+  count() %>% 
+  filter(!is.na(math_test_grade)) %>%
+  ggplot(aes(x=math_test_grade, y = n)) +
+  geom_point() +
+  facet_wrap(~grade_level)  +
+  labs(title = "Math faceted by student grade level", x = "Exam Level", y = "Number of People who took the exam")
+plot(graph3)
+
+#ELA
+graph4 <- stud_perf_quantGPA %>%
+  select(year, student_id_scram,grade_level,ela_test_grade,ela_perf_level) %>%
+  group_by(grade_level, ela_test_grade) %>%
+  count() %>% 
+  filter(!is.na(ela_test_grade)) %>%
+  ggplot(aes(x=ela_test_grade, y = n)) +
+  geom_point() +
+  facet_wrap(~grade_level) +
+  labs(title = "Social Studies faceted by student grade level", x = "Exam Level", y = "Number of People who took the exam")
+plot(graph4)
+
+```
+In any given grade level, we have a set of possible scores you could have: 
+-not eligible
+-eligible present
+-eligible missing
+```{r}
+```

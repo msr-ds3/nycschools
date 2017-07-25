@@ -205,43 +205,6 @@ auc
 ```
 Is this correct?
 
-##Evaluating model_2.
-
-Joining in student performance data.
-```{r}
-load('/data/nycdoe/clean_data/actual_stud_perf.Rdata')
-student_performance <-
-  student_performance %>%
-  mutate(year=as.character(year))
-
-bios_with_student_perf <-
-  bios4 %>%
-  mutate(student_id_scram=as.character(student_id_scram)) %>%
-  left_join(student_performance, by=c('year', 'student_id_scram'))
-
-bios_with_student_perf_2 <-
-  bios_with_student_perf %>%
-  filter(year=="2011")
-
-data_with_features_2 <-
-  bios_with_student_perf_2 %>%
-  select(did_continue, grade_level, sex, ethnicity, home_lang, pob_code, ell, swd, disability, poverty, perc_attendance, ela_perf_level, math_perf_level, sci_perf_level, soc_perf_level, regents_english, regents_language, regents_history, regents_math, regents_RCT, regent_science, GPA)
-
-model_2_data <- 
-  data_with_features_2 %>%
-  group_by_at(setdiff(names(data_with_features_2), "did_continue")) %>%
-  summarize(yes = sum(did_continue), no = n() - sum(did_continue))
-
-# options(na.action='na.pass')
-#X <- model.matrix(~ grade_level + sex + ethnicity + ell + disability + poverty + perc_attendance + ela_perf_level + math_perf_level + sci_perf_level + soc_perf_level + regents_english + regents_language + regents_history + regents_math + regents_RCT + regent_science + GPA, data=model_2_data)
-
-X <- model.matrix(~grade_level+sex+ethnicity+ell+disability+poverty+perc_attendance+ela_perf_level, data=model_data)
-
-y <- cbind(model_2_data$no, model_2_data$yes)
-
-model_1 <- glmnet(X, y, family="binomial", lambda = 0)
-```
-
 ### TO DO - Add in `graduated` to `did_continue` column - the same model that predicts if a 10th grader will continue will predict if a 12th grader will "continue" a.k.a. graduate.
 
 
