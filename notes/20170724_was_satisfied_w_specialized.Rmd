@@ -1,0 +1,313 @@
+---
+title: "20170724 - Do You Get What You Want (cont.)"
+author: "Anandini, Thoa"
+date: "7/24/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+hsaps_files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+june_biog_files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+```
+### Read in data from HSAPS and June Biog
+
+Here we read in HSAPS data from 2008 to 2015 (in academic year term: 2008-09 to 2015-16) because  they have small proportion of NAs in `final_disposition`. 
+
+We choose the following colums:
+
+* `r1programcode*` : specify the program that a student ranks and applies to in the first round.
+* `final_disposition`: specify the program that a student gets finalized to.
+* `shsat_tested`: specify whether a student took a Specialized HS test
+* `shsat_offered`: specify whether a student got an offer from a specialized HS.
+* `any_log_offer`: specify whether a student got an offer from LaGuardia HS.
+
+```{r read-hsaps, include=FALSE}
+# read hsaps data
+read_satisfied <- function(filename) {
+  print(filename)
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            final_disposition_round=col_character(),
+                                            opt_out_status=col_integer(),
+                                            shsat_offer=col_integer(),
+                                            shsat_tested=col_integer()))
+  df$year <- year
+  df <- df %>% 
+    select(year, 
+           student_id_scram, 
+           starts_with("r1programcode"), 
+           starts_with("opt_out_"), 
+           contains("final_disposition"),
+           shsat_tested,
+           shsat_offer,
+           any_lag_offer)
+}
+
+satisfied_08_15 <- map_df(hsaps_files[4:11], read_satisfied)
+```
+
+Then we read in June Biog data to have students' demographics. (We will also read in data from Student's Profile group once that is done.)
+
+```{r read-june-bio, include=FALSE}
+read_students_hs <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            grade_level=col_character()))
+  df$year <- year
+  df <- df %>% 
+    select(year, student_id_scram, grade_level, dbn, sex, ethnicity, ell, swd, home_lang)
+}
+students_hs_08_15 <- map_df(june_biog_files[4:11], read_students_hs)
+ #could not get disabilty now, not present in some year. 
+```
+
+### Check the Specialized cases
+
+* In 2014 and 2015, there are no values at all for `shsat_tested`, `shsat_offer`, nor `opt_out_status`. There are 161,218 students with NA in shsat_tested - this is the same number of NA in opt_out_status. Does this simply mean we don't have data about these students i.e. whether they opted out or not, whether they took the Specialized test or not.
+
+* There are 166,642 students with NA in shsat_offer. 161,218 of these have NA in shsat_tested. 5 did not take SHSAT. 5239 took it.
+
+* Half of all applicants (from 2008 to 2015) did NOT take SHSAT, did NOT receive Specialized offer, and did NOT opt out ==> this is perfectly fine.
+* Almost 20% of all applicants (from 2008 to 2015) took SHSAT, did not get offered, and did not opt out ==> perfectly fine too.
+* Less than 4% of all applicants (24,331) took SHSAT and got offered and did not opt out ==> perfectly fine as well.
+* 2% NEITHER took the test nor got offered (13,212), and opted out.
+* 1.25% took the test (8239), did NOT get offered, and opted out.
+* 4802 took the test, did not opt out, but we did not know if they get offered or not. 
+* 1748 (0.26%) took the test and got offered, but opted out.
+
+* 1.23% (across years 2008 to 2015) get offered by LaGuardia
+```{r check-specialized}
+summary(satisfied_08_15)
+
+satisfied_08_15 %>%
+  group_by(shsat_tested) %>%
+  count()
+
+# because we did not what happened with these 161,218 people, we want to check in what year these things happened. It turned out 2014 and 2015 are those years.
+satisfied_08_15 %>%
+  filter(is.na(shsat_tested)) %>%
+  group_by(year) %>%
+  count()
+satisfied_08_15 %>%
+  filter(year %in% c(2014, 2015)) %>%
+  group_by(shsat_tested, shsat_offer, opt_out_status, opt_out_reason) %>%
+  count()
+
+# aside from 2014 and 2015, 2009 also has NA in shsat_offer
+satisfied_08_15 %>%
+  filter(is.na(shsat_offer)) %>%
+  group_by(year) %>%
+  count()
+# in 2009, shsat_offer is either 0 or NA ==> it would be problematic to accurately know whether the shsat test-takers are satisfied or not.
+satisfied_08_15 %>%
+  filter(year == 2009) %>%
+  group_by(shsat_offer) %>%
+  count()
+
+satisfied_08_15 %>%
+  group_by(shsat_tested, shsat_offer) %>%
+  count()
+
+satisfied_08_15 %>%
+  group_by(shsat_tested, shsat_offer, opt_out_status) %>%
+  count() %>%
+  arrange(desc(n))
+
+satisfied_08_15 %>%
+  group_by(any_lag_offer) %>%
+  count()
+satisfied_08_15 <-
+  satisfied_08_15 %>%
+  mutate(lag_offered = as.integer(any_lag_offer > 0))
+# 1.23% (across years 2008 to 2015) get offered by LaGuardia
+satisfied_08_15 %>%
+  group_by(lag_offered) %>%
+  count()
+
+
+# create a dummy variable indicating whether you belong to Specialized group or not. Yes means you either took the Specialized test or got offered by LaGuardia.
+satisfied_08_15_drop1415 <-
+  satisfied_08_15 %>%
+  filter(!is.na(shsat_tested))
+
+satisfied_08_15_drop1415 <-
+  satisfied_08_15_drop1415 %>%
+  mutate(specialized = ifelse(shsat_tested == 1 | lag_offered == 1,
+                              yes = 1,
+                              no = 0))
+summary(satisfied_08_15_drop1415)
+```
+### Calculating the `was_satisfied` metrics for students' 1st choice.
+
+1. We first `gather` to get the choice list in a long table format.
+2. Then we filter students' choices to their top 1 choice.
+3. Then we discard rows with NA in their top 1 choice.
+4. Then we define `was_satisfied = 1`:
+   + for "normal" students, satisfied means their `final_disposition` programcode matches their top1 programcode.
+   + for "specialized" students, satisfied means either they get to any specialized program OR they get into their top1.
+   
+```{r calculuate-satisfied, echo=FALSE}
+long_satisfied_08_15_top1 <-
+    satisfied_08_15_drop1415 %>%
+    gather("rank", "program_applied", 3:14) %>%
+    mutate(rank = as.numeric(substring(rank, 14))) %>%
+    filter(rank <= 1) %>%
+    filter(!is.na(program_applied) | specialized == 1) %>%
+    mutate(was_satisfied = ifelse(specialized == 1,
+                                  yes = as.numeric(shsat_offer == 1 | lag_offered == 1 | final_disposition == program_applied),                
+                                  no = as.numeric(final_disposition == program_applied))) %>%
+    group_by(year, student_id_scram) %>%
+    summarize(was_satisfied = sum(was_satisfied, na.rm = TRUE))
+```
+
+### Join HSAPS and June Bio data, on student_id and year. 
+
+Will drop 68,369 rows whose `student_id_scram` correspoding with `year` are not exist in June Biog.
+
+```{r join-tables, include=FALSE}
+
+withfeatures_satisfied_08_15 <-
+  inner_join(students_hs_08_15, long_satisfied_08_15_top1, by = c("student_id_scram", "year"))
+```
+
+```{r examine the finalized table}
+summary(withfeatures_satisfied_08_15)
+
+# 15 students have NA in home language
+withfeatures_satisfied_08_15 %>%
+  filter(is.na(home_lang))
+
+# so we'll drop these rows with NA's in home language, before we put it into our model
+withfeatures_satisfied_08_15 <- 
+  withfeatures_satisfied_08_15 %>%
+  filter(!is.na(home_lang))
+
+withfeatures_satisfied_08_15 %>%
+  group_by(grade_level) %>%
+  count()
+
+withfeatures_satisfied_08_15 %>%
+  group_by(ethnicity) %>%
+  count()
+```  
+
+### Starting our regression!
+
+```{r regression, message=FALSE}
+library(glmnet)
+library(scales)
+library(ROCR)
+library(Matrix)
+
+# load in data on students' quantiled GPA
+load('/data/nycdoe/clean_data/stud_perf_quantiledGPA.Rdata')
+
+# load in attendance rate per school with year
+load('/data/nycdoe/clean_data/att_rate_per_school_with_year.Rdata')
+attendance_per_school <- SchoolPresRate
+rm(SchoolPresRate)
+
+# load in graduation rate per HIGH school with year
+load('/data/nycdoe/clean_data/percent_grad_per_school.Rdata')
+gradrate_per_school <- percent_grad
+rm(percent_grad)
+
+
+# join applicants data with student-performance-quantGPA data
+withfeatures_satisfied_08_15 <-
+  left_join(withfeatures_satisfied_08_15, stud_perf_quantGPA, by=c("student_id_scram", "year"))
+summary(withfeatures_satisfied_08_15)
+withfeatures_satisfied_08_15 %>%
+  filter(is.na(grade_level.y))
+# get rid of applicants with 0K and PK grade_level
+withfeatures_satisfied_08_15 <-
+  withfeatures_satisfied_08_15 %>%
+  filter(!is.na(grade_level.y)) %>%
+  select(-grade_level.x) %>%  #drop char grade_level
+  rename("grade_level" = grade_level.y)
+
+# join in school attendance rate
+withfeatures_satisfied_08_15 <-
+  left_join(withfeatures_satisfied_08_15, attendance_per_school, by=c("dbn", "year"))
+summary(withfeatures_satisfied_08_15)
+withfeatures_satisfied_08_15 %>%
+  filter(is.na(presentRate)) %>%
+  group_by(year) %>%
+  summarize(num_students = n(),
+            num_schools = length(unique(dbn)))
+# drop rows that have NA in attendance (i.e. NA in presentRate): 128 students in 2012 (28 schools), 70 students in 2013 (22 schools) 
+withfeatures_satisfied_08_15 <-
+  withfeatures_satisfied_08_15 %>%
+  filter(!is.na(presentRate))
+
+# join in school graduation rate
+withfeatures_satisfied_08_15 <-
+  withfeatures_satisfied_08_15 %>%
+  select(-numStudents, -grads, -percentGrad)
+
+############ Model R #################
+library(modelr)
+# sex + ethnicity + ell + swd + 
+frmula <- as.formula(was_satisfied ~ quantiled_GPA + presentRate)
+mooo <- model.matrix(object = frmula, 
+                     data = withfeatures_satisfied_08_15)
+
+logit_satisfied <- glmnet(x = mooo,
+                          y = withfeatures_satisfied_08_15$was_satisfied,
+                          family = "binomial")
+plot(logit_satisfied)
+coef(logit_satisfied)
+```
+
+```{r model-evaluation, message=FALSE}
+
+(baseline_accuracy <- mean(withfeatures_satisfied_08_15$was_satisfied))
+  
+df <- data.frame(actual = withfeatures_satisfied_08_15$was_satisfied,
+                 predicted = predict(object = logit_satisfied, newx = mooo, type = "response"))
+summary(df)
+df <-
+  df %>%
+  rename("predicted" = s0)
+df <-
+  df %>%
+  mutate(adjusted_pred = ifelse(predicted > 0.5, yes=1, no=0))
+
+
+# ROC curve and AUC
+pred <- prediction(df$predicted, df$actual)
+perf <- performance(pred, measure='tpr', x.measure='fpr')
+plot(perf, main = "ROC curve for k=1 classifier")
+
+performance(pred, 'auc')
+actual_negatives <- nrow(df) - sum(df$actual)
+actual_positives <- sum(df$actual)
+
+false_negatives <- nrow(df[which(df$adjusted_pred == 0 & df$actual == 1), ])
+false_positives <- nrow(df[which(df$adjusted_pred == 1 & df$actual == 0), ])
+
+true_negatives <- nrow(df[which(df$adjusted_pred == 0 & df$actual == 0), ])
+true_positives <- nrow(df[which(df$adjusted_pred == 1 & df$actual == 1), ])
+
+# ACCURACY: fraction of correct classifications
+(accuracy <- mean(df$adjusted_pred == df$actual))
+
+# RECALL, SENSITIVITY: 
+(recall <- true_positives / (true_positives + false_negatives)) 
+
+# PRECISION: fraction of positive predictions that are actually true
+(precision <- true_positives / (true_positives + false_positives))
+
+confMatrix <-
+  matrix(c(true_positives, false_negatives,
+           false_positives, true_negatives),
+         nrow = 2,
+         ncol = 2,
+         byrow = TRUE,
+         dimnames = list(c("actual=T", "actual=F"),
+                         c("predicted=T", "predicted=F")))
+confMatrix
+```
