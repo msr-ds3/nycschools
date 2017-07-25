@@ -69,6 +69,7 @@ regent_data_max_mark_per_exam <- regent_data %>%
   summarise(maxMark = max(mark)) 
 ############################# Year is NOT included #########################
 #get count of students per school
+
 regent_data_count_per_school <- regent_data_max_mark_per_exam %>% group_by(dbn, exam_code, item_name) %>% summarise(count = n())
 
 ##############save data frame ####################
@@ -116,7 +117,7 @@ regent_school_avg_per_exam %>%
 #regent_school_avg_per_exam %>% filter(exam_code == "RCT")
 
 ######################### save data frame ##################################
-save(regent_school_avg_per_exam, file = "")
+save(regent_school_avg_per_exam, file = "/data/nycdoe/clean_data/regent_school_avg_per_exam.Rdata")
 
 ##########################################################################
 
@@ -146,7 +147,7 @@ save(regent_school_avg_per_exam, file = "")
 regent_avgs_with_count <- inner_join(regent_data_count_per_school, regent_school_avg_per_exam, by = c("dbn", "exam_code", "item_name"))
 
 ######################### save to df #########################################
-save()
+save(regent_avgs_with_count, file = "/data/nycdoe/clean_data/regent_avgs_with_count.Rdata")
 ##############################################################################
 
 ```
