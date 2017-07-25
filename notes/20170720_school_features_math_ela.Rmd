@@ -68,19 +68,53 @@ dbn_grades <- do.call("rbind", vec)
 ```{r}
 
 ela_dbns <- math_ela %>% select(student_id_scram, ell, grade_level, ela_dbn, ela_perf_level, ela_scale_score, testing_accomodations, year) %>%
-  group_by(ela_dbn, year, grade_level) %>% filter(!is.na(ela_perf_level), !is.na(ela_scale_score)) %>%
-  summarise(ela_avg_perf_level = mean(ela_perf_level), ela_avg_scale_score = mean(ela_scale_score), ela_student_count = n())
+  group_by(ela_dbn, grade_level) %>% filter(!is.na(ela_perf_level), !is.na(ela_scale_score)) %>%
+  summarise(ela_avg_perf_level = mean(ela_perf_level), ela_avg_scale_score = mean(ela_scale_score), ela_student_count = n(), ela_students = n_distinct(ela_student_count))
 
+#remove duplicate student count
+ela_dbns <- ela_dbns %>% select(ela_dbn, grade_level, ela_avg_perf_level, ela_avg_scale_score, ela_students)
+
+ela_dbns <- ela_dbns %>% filter(grade_level < 9) %>% mutate(borough = substr(ela_dbn, 3,3), district = substr(ela_dbn, 1,2))
+
+
+########################################
+
+#grouping by school and grade level for math and take out nas. Note that if students took a test 
 math_dbns <- math_ela %>% select(student_id_scram, ell, grade_level, math_dbn, math_perf_level, math_scale_score, testing_accomodations, year) %>%
-  group_by(math_dbn, year, grade_level) %>% filter(!is.na(math_perf_level), !is.na(math_scale_score)) %>%
-  summarise(math_avg_perf_level = mean(math_perf_level), math_avg_scale_score = mean(math_scale_score), math_student_count = n())
-
-math_ela_join <- full_join(ela_dbns, math_dbns, by = c("ela_dbn" = "math_dbn"))
+  group_by(math_dbn, grade_level) %>% filter(!is.na(math_perf_level), !is.na(math_scale_score), !is.na(grade_level)) %>%
+  summarise(math_avg_perf_level = mean(math_perf_level), math_avg_scale_score = mean(math_scale_score), math_student_count = n(), math_students = n_distinct(math_student_count))
 
 
-math_ela_join <- math_ela_join %>%
-  rename(ela_year = year.x, math_year = year.y, ela_grade_level = grade_level.x, math_grade_level = grade_level.y)
+#throw out high school grades
+math_dbns <- math_dbns %>% select(math_dbn, grade_level, math_avg_perf_level, math_avg_scale_score, math_students)
 
-save(math_ela_join, file = "/data/nycdoe/clean_data/math_ela_avg_count_data_per_school.Rdata")
+math_dbns <- math_dbns %>% filter(grade_level < 9) %>% mutate(borough = substr(math_dbn, 3,3), district = substr(math_dbn, 1,2))
+
+
+#math_ela_join <- full_join(ela_dbns, math_dbns, by = c("ela_dbn" = "math_dbn"))
+
+
+#math_ela_join <- math_ela_join %>%
+  #rename(ela_year = year.x, math_year = year.y, ela_grade_level = grade_level.x, math_grade_level = grade_level.y)
+
+save(ela_dbns, file = "/data/nycdoe/clean_data/ela_avg_count_per_school.Rdata")
+
+save(math_dbns, file = "/data/nycdoe/clean_data/math_avg_count_per_school.Rdata")
+
+math_dbns %>% group_by(math_dbn) %>% summarise(avg_student_count = mean(math_students)) %>%
+  ggplot(aes(x=avg_student_count)) + geom_histogram(binwidth = 5)
+
+math_count_students <- math_dbns %>% group_by(math_students) %>% summarise(count = n())
+
+math_count_schools<- nrow(math_dbns %>% group_by(math_dbn))
+
+```
+
+```{r}
+
+#join with june bio and get dbns from public set and only use those
+
+math_dbns %>% filter(math_students == 1)
+
 
 ```
