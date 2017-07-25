@@ -14,7 +14,7 @@
 ## 2017-07-17
   * [ per grade-survival table](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170717_per_grade-survival_table.html)
   * [ School Data Binary](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170717_School_Data_Binary.html)
-  * [ survival and entry rate](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170717_survival _and_entry_rate.html)
+  * [ survival and entry rate](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170717_survival_and_entry_rate.html)
   * [ where do students go to school](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170717_where_do_students_go_to_school.html)
 
 ## 2017-07-18
