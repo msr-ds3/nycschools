@@ -1,6 +1,7 @@
 ---
 title: "School Feature grad"
 output: html_document
+auth
 ---
 
 ```{r setup, include=FALSE}
@@ -9,6 +10,8 @@ library(ggplot2)
 library(readr)
 library(tidyverse)
 library(dplyr)
+
+#load tidy grad (Ilana and Francious)
 
 load("/data/nycdoe/clean_data/tidy_grad_year_data.Rdata")
 
@@ -24,7 +27,12 @@ read_csv_with_year <- function(filename) {
 GradData <- map_df(files, read_csv_with_year)
 
 grad_data <- GradData
-###############################################
+
+```
+
+load bio data
+```{r}
+
 files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
 
 read_csv_with_year <- function(filename) {
@@ -38,10 +46,8 @@ JuneBio <- map_df(files, read_csv_with_year)
 
 bio_data <- JuneBio
 ```
-
+types of diplomas awarded
 ```{r}
-
-grad_data %>% head() %>% View()
 
 grad_data %>% group_by(diploma) %>% summarise()
 
@@ -49,15 +55,15 @@ grad_data %>% group_by(diploma) %>% summarise()
 
 
 ```
-#Join tidy grad and bio data
+Join tidy grad and bio data on year and student_id
 ```{r}
-
-bio_data %>% group_by(student_id_scram) %>% summarise(count = n())
 
 grad_bio <-  inner_join(tidy_grad, bio_data, by = c("student_id_scram", "year"))
 
+```
 
-###################
+
+```{r}
 
 tidy_grad_bio <- grad_bio %>% group_by(student_id_scram, graduated, year) %>% summarise(yearGrad = ifelse(graduated == 1, min(year), -1))
 
@@ -68,7 +74,10 @@ tidy_grad_bio %>% group_by(student_id_scram) %>% summarise(count = n())
 tidy_grad_bio %>% filter(student_id_scram == 1262143)
 
 tidy_grad_bio %>% group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(n = n())
-############################
+
+```
+
+```{r}
 
 grad_bio %>% group_by(student_id_scram) %>% summarise(count = n()) %>% arrange(desc(count))
 
