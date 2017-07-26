@@ -1,0 +1,192 @@
+---
+title: "Untitled"
+author: "Keri and David"
+date: "7/25/2017"
+output: html_document
+---
+Necessary Set-up Stuff
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+```
+Loading in student year, student_id, and grade level from June Biog
+```{r}
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, grade_level)
+}
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+level <- map_df(files, read_june_with_year)
+```
+Loading in Math and ELA stuff
+```{r}
+read_ela_math_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, ela_scale_score, math_scale_score)
+}
+files <- Sys.glob('/data/nycdoe/Math and ELA/*.csv')
+ela_math <- map_df(files, read_ela_math_with_year)
+```
+Loading Regents Data
+```{r}
+load('/data/nycdoe/clean_data/highscool_performance.Rdata')
+high_scores <- full_join(level, average_percentile, by = c("year","student_id_scram"))
+```
+Combine dataframes
+```{r}
+elem_scores <- full_join(level, ela_math, by = c("year","student_id_scram"))
+```
+Filtering the Dataframes
+```{r}
+#Adding the percent rank for each student per year
+elem_scores_v2 <-
+  elem_scores %>% 
+  filter(!(is.na(ela_scale_score)&is.na(math_scale_score))) %>%
+  mutate(ela_percent = (percent_rank(ela_scale_score))*100) %>%
+  mutate(math_percent = (percent_rank(math_scale_score))*100)
+
+#Gathering the dataset for dataframe for average to easily be computed
+elem_scores_v3 <-
+  elem_scores_v2 %>% 
+  group_by(year,student_id_scram,grade_level) %>%
+  select(year, student_id_scram, grade_level, ela_percent, math_percent) %>%
+  gather(subject, percentile, ela_percent:math_percent, factor_key=TRUE)
+
+#Average the percentiles for each student per year
+final_elem_scores <-
+  elem_scores_v3 %>%
+  group_by(year,student_id_scram,grade_level) %>%
+  filter(!is.na(percentile)) %>%
+  summarize(average_percentile=mean(percentile))
+```
+
+Picking students who transitioned from 3rd to 4th grade and 
+plotting their percentile change
+```{r}
+#grab students with grade level 3 and 4 ONLY
+intermediate <- 
+  final_elem_scores %>% 
+  ungroup() %>%
+  filter(grade_level==4 | grade_level ==5) %>%
+  select(-year)
+
+#grab student ids who appears twice with grade level 3 and 4
+#not necessarily filter our students who repeated the year
+id <- 
+  intermediate %>% 
+  group_by(student_id_scram) %>% 
+  summarize(count = n()) %>% 
+  filter(count == 2) %>% 
+  ungroup %>% 
+  select(student_id_scram)
+
+#combined intermediate dataframe, still needs to filter out students who repeated same year
+intermediate2 <- left_join(id, intermediate, by="student_id_scram")
+
+#grab student ids who only appeared once each grade level (non-repeats)
+id2 <- intermediate2 %>% 
+  group_by(student_id_scram, grade_level) %>% 
+  count() %>% 
+  filter(n==1) %>% 
+  ungroup() %>% 
+  select(student_id_scram, grade_level)
+
+#combine the student ids with the prefiltered dataframe
+elem_scores_v5 <- left_join(id2, intermediate2, by=c("student_id_scram","grade_level"))
+
+#spread the data frame on grade level
+elem_scores_v6 <-
+  elem_scores_v5 %>%
+  spread(key = grade_level, value = average_percentile) 
+colnames(elem_scores_v6) = c("student_id_scram","three_grade","four_grade")
+
+elem_scores_v6 %>%
+  ggplot(aes(x=(three_grade), y=(four_grade))) +
+  geom_point(alpha = 0.01) 
+
+```
+
+Picking students who transition from 9th to 10th grade and 
+plotting their percentile change
+```{r}
+#grab students with grade level 3 and 4 ONLY
+inter_high <- 
+  high_scores %>%
+  filter(grade_level==9 | grade_level ==10) %>%
+  select(-year)
+
+#grab student ids who appears twice with grade level 3 and 4
+#not necessarily filter our students who repeated the year
+id_high <- 
+  inter_high %>% 
+  group_by(student_id_scram) %>% 
+  summarize(count = n()) %>% 
+  filter(count == 2) %>% 
+  ungroup %>% 
+  select(student_id_scram)
+
+#combined intermediate dataframe, still needs to filter out students who repeated same year
+inter2_high <- left_join(id_high, inter_high, by="student_id_scram")
+
+#grab student ids who only appeared once each grade level (non-repeats)
+id2_high <- inter2_high %>% 
+  group_by(student_id_scram, grade_level) %>% 
+  count() %>% 
+  filter(n==1) %>% 
+  ungroup() %>% 
+  select(student_id_scram, grade_level)
+
+#combine the student ids with the prefiltered dataframe
+high_scores2 <- left_join(id2_high, inter2_high, by=c("student_id_scram","grade_level"))
+
+#spread the data frame on grade level
+high_scores3 <-
+  high_scores2 %>%
+  spread(key = grade_level, value = average_percentile) 
+colnames(high_scores3) = c("student_id_scram","nine_grade","ten_grade")
+
+high_scores3 %>%
+  ggplot(aes(x=(nine_grade), y=(ten_grade))) +
+  geom_point(alpha=0.01) +
+  geom_smooth()
+
+```
+
+
+```{r}
+all_scores <-
+  full_join(high_scores, final_elem_scores, by=c("year","student_id_scram","grade_level"))
+
+tidy_all_percentile <-
+  all_scores %>%
+  group_by(student_id_scram, year, grade_level) %>%
+  gather(subject, percentile, 4:5)
+
+avg_all_percentile <- 
+  tidy_all_percentile %>%
+  filter(!is.na(percentile)) %>%
+  group_by(student_id_scram, year, grade_level) %>%
+  summarize(performance = mean(percentile))
+
+#AVERAGE JOE : 100002032 #
+
+save(avg_all_percentile, file = '/data/nycdoe/clean_data/avg_all_long.Rdata')
+```
+
+```{r}
+avg_all_long <- avg_all_percentile
+
+avg_all_wide <- 
+  avg_all_percentile %>%
+  group_by(year,student_id_scram) %>%
+  spread(key = grade_level, value = performance)
+```
