@@ -1,0 +1,104 @@
+---
+title: "Joining Schools"
+author: "Rivka"
+date: "7/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(readxl)
+
+
+```
+Get demo data from file
+```{r}
+#demo <- read_excel('/data/nycdoe/DemographicSnapshot201213to201617Public_FINAL1.xlsx', sheet=5)
+demographics_DOE_11_15 <- read_excel('/data/nycdoe/DemographicSnapshot201112to201516Public_FINAL.xlsx', sheet=4)
+
+demographics_DOE_11_15<- demographics_DOE %>% select(DBN, `School Name`, Year, `Total Enrollment`, matches('%'), matches('#'))
+
+```
+Get class data from file
+```{r}
+classSize_DOE <- read_excel('/data/nycdoe/February2017_Avg_ClassSize_School.xlsx', sheet = 1, skip = 6)
+
+classSize_DOE  <- classSize_DOE %>% mutate(totalNumStudents = `Average Class Size` * `Number of Classes` )
+
+students_perDBN_perGradeLevel <- classSize_DOE %>% group_by(DBN, `Grade Level`) %>% summarise(totalStudentsGradeLevel = sum(totalNumStudents))
+
+```
+Get ELA test data from file
+```{r}
+ela_doe_6_12_data<- read_excel('/data/nycdoe/SchoolELAResults20062012Public.xlsx', sheet = 1)
+
+ela_doe_6_12 <- read_excel('/data/nycdoe/SchoolELAResults20062012Public.xlsx', skip = 6, sheet = 1)
+
+#rename columns
+colnames(ela_doe_6_12)[7] <- "Level_1"
+colnames(ela_doe_6_12)[8] <- "Level_1_perc"
+colnames(ela_doe_6_12)[9] <- "Level_2"
+colnames(ela_doe_6_12)[10] <- "Level_2_perc"
+colnames(ela_doe_6_12)[11] <- "Level_3"
+colnames(ela_doe_6_12)[12] <- "Level_3_perc"
+colnames(ela_doe_6_12)[13] <- "Level_4"
+colnames(ela_doe_6_12)[14] <- "Level_4_perc"
+colnames(ela_doe_6_12)[15] <- "Level_3AND4"
+colnames(ela_doe_6_12)[16] <- "Level_3AND4_perc"
+
+#remove data loaded to see col names
+rm(ela_doe_6_12_data)
+
+#remove aggregated data
+ela_doe_6_12  <- ela_doe_6_12 %>% filter(Grade != "All Grades")
+
+#only take cols we want (not subdata for each level exam)
+ela_doe_6_12  <- ela_doe_6_12 %>% select(c(1,2,3, 5,6))
+ela_doe_6_12
+```
+Get Math data from file
+```{r}
+math_doe_6_12 <- read_excel('/data/nycdoe/SchoolMathResults20062012Public.xlsx', skip = 6)
+math_doe_6_12_data <- read_excel('/data/nycdoe/SchoolMathResults20062012Public.xlsx')
+
+colnames(math_doe_6_12)[7] <- "Level_1"
+colnames(math_doe_6_12)[8] <- "Level_1_perc"
+colnames(math_doe_6_12)[9] <- "Level_2"
+colnames(math_doe_6_12)[10] <- "Level_2_perc"
+colnames(math_doe_6_12)[11] <- "Level_3"
+colnames(math_doe_6_12)[12] <- "Level_3_perc"
+colnames(math_doe_6_12)[13] <- "Level_4"
+colnames(math_doe_6_12)[14] <- "Level_4_perc"
+colnames(math_doe_6_12)[15] <- "Level_3AND4"
+colnames(math_doe_6_12)[16] <- "Level_3AND4_perc"
+
+#remove data loaded to see col names
+rm(math_doe_6_12_data)
+
+#remove aggregated data
+math_doe_6_12  <- math_doe_6_12 %>% filter(Grade != "All Grades")
+
+#only take cols we want (not subdata for each level exam)
+math_doe_6_12  <- math_doe_6_12 %>% select(c(1,2,3, 5,6))
+math_doe_6_12
+```
+
+join into one dataframe 
+```{r}
+ela_math_scores_per_school <- full_join(math_doe_6_12, ela_doe_6_12, by = c("DBN", "Year", "Grade"))
+
+#rename join cols
+colnames(ela_math_scores_per_school)[4] <- "num_tested_math"
+colnames(ela_math_scores_per_school)[5] <- "mean_scale_score_math"
+
+colnames(ela_math_scores_per_school)[6] <- "num_tested_ela"
+colnames(ela_math_scores_per_school)[7] <- "mean_scale_score_ela"
+
+ela_math_scores_per_school
+```
