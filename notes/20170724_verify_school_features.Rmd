@@ -1,0 +1,62 @@
+---
+title: "Verifying School Features"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(httr)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(scales)
+
+
+dbn <- GET("https://data.cityofnewyork.us/api/views/ihfw-zy9j/rows.json?accessType=DOWNLOAD")
+
+
+
+load("/data/nycdoe/clean_data/regent_avgs_with_count.Rdata")
+load("/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+load("/data/nycdoe/clean_data/att_rate.Rdata")
+load("/data/nycdoe/clean_data/gpa_avg_per_school.Rdata")
+load("/data/nycdoe/clean_data/math_ela_avg_count_data_per_school.Rdata")
+load("/data/nycdoe/clean_data/bio_data.Rdata")
+
+```
+
+#plot distribution of data and check out weird data
+```{r}
+
+days_only_summed %>% group_by(dbn) %>% summarise(totalDays = mean(total_School_days))
+
+total_days_per_dbn <- days_only_summed %>% filter(total_School_days > 150) %>%  group_by(dbn) %>% summarise(totalDays = mean(total_School_days)) 
+
+#total school days
+days_only_summed %>% ggplot(aes(x = total_School_days)) + geom_histogram() + ylab("Number of schools") + scale_y_continuous(label = comma)
+
+#there are a lot of schools with less than 150 days of school! 
+days_only_summed %>% filter(total_School_days <150) %>% group_by(dbn,student_id_scram, total_School_days, year) %>% summarise()
+
+days_only_summed %>% group_by(dbn, student_id_scram, total_School_days, year) %>% summarise()
+
+```
+#compare data to data from online
+```{r}
+
+highSchoolPresRate %>% filter(dbn == '13K596')
+```
+#Article from NYT about school closings
+![Caption for the picture.](/home/rivka/test.PNG)
+
+47 students are listed to be in Peace academy (dbn 13k596). The data is consistent with this number.
+```{r}
+#link to NYT article: https://www.nytimes.com/2015/12/15/nyregion/new-york-city-to-close-3-troubled-public-schools-in-brooklyn.html
+
+bio_data %>% filter(dbn == '13K596')%>%group_by(year) %>% summarise(count = n())
+
+```
+
+
