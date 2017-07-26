@@ -1,0 +1,131 @@
+---
+title: "Regent_Percent_Rank"
+author: "David and Keri"
+date: "7/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+
+load('/data/nycdoe/clean_data/student_perf_feature.Rdata')
+```
+#Convert all regent dat into percent rank values
+```{r}
+student_regents_percentile <-
+  regents %>%
+  select(student_id_scram,year)
+#Math
+regent_just_math <- regents %>%
+  filter(!(is.na(regents_math))) %>%
+  mutate(regents_math=as.numeric(regents_math))%>%
+  select(student_id_scram,year,regents_math)
+ 
+regent_just_math <- regent_just_math %>% 
+  filter(!(is.na(regents_math))) %>%
+  group_by(year)%>%
+  mutate(math_percent=percent_rank(regents_math)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_math, by=c("student_id_scram", "year"))
+
+
+#English
+regent_just_english <- regents %>%
+  mutate(regentss_english=as.numeric(regents_english))%>% 
+  filter(!is.na(regents_english)) %>%
+  select(student_id_scram,year,regents_english)
+ 
+regent_just_english <- regent_just_english %>% 
+  filter(!(is.na(regents_english))) %>%
+  group_by(year)%>%
+  mutate(english_percent=percent_rank(regentss_english)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_english, by=c("student_id_scram", "year"))
+
+#Language
+regent_just_language <- regents %>%
+  filter(!is.na(regents_language)) %>%
+  mutate(regents_language=as.numeric(regents_language))%>%
+  select(student_id_scram,year,regents_language)
+ 
+regent_just_language <- regent_just_language %>% 
+  filter(!(is.na(regents_language))) %>%
+  group_by(year)%>%
+  mutate(language_percent=percent_rank(regents_language)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_language, by=c("student_id_scram", "year")) %>%
+  select(-regents_language)
+
+#History
+
+regent_just_history <- regents %>%
+  filter(!is.na(regents_history)) %>%
+  mutate(regent_history=as.numeric(regents_history))%>%
+  select(student_id_scram,year,regents_history)
+ 
+regent_just_history <- regent_just_history %>% 
+  mutate(regents_history=as.numeric(regents_history))%>%
+  filter(!(is.na(regents_history))) %>%
+  group_by(year)%>%
+  mutate(history_percent=percent_rank(regents_history)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_history, by=c("student_id_scram", "year")) %>%
+  select(-regents_history)
+
+#Science 
+regent_just_science <- regents %>%
+  filter(!is.na(regents_science)) %>%
+  mutate(regents_science=as.numeric(regents_science))%>%
+  select(student_id_scram,year,regents_science)%>%
+  filter(!(is.na(regents_science))) %>%
+  group_by(year)%>%
+  mutate(science_percent=percent_rank(regents_science)*100)
+
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_science, by=c("student_id_scram", "year")) %>%
+  select(-regents_science)
+
+
+#RCT
+regent_just_rct <- regents %>%
+    select(student_id_scram,year,Regent_RCT) %>%
+    mutate(regent_rct_factor = ifelse(is.na(Regent_RCT),"Unknown", Regent_RCT))%>%
+    select(-Regent_RCT)
+student_regents_quantile <- left_join(student_regents_quantile, regent_just_rct, by=c("student_id_scram", "year"))
+
+
+save(student_regents_quantile,file='/data/nycdoe/clean_data/student_regents_quantile.Rdata')
+
+
+```
+creating performace column
+```{r}
+backup <- student_regents_percentile
+
+tidy_regents_percentile <- student_regents_percentile %>%
+  group_by(student_id_scram,year) %>%
+  gather(subject,percentile,3:7)
+
+average_percentile <- tidy_regents_percentile %>%
+  filter(!is.na(percentile)) %>%
+  group_by(student_id_scram,year) %>%
+  summarize(average_percentile = mean(percentile))
+  
+
+save(average_percentile,file='/data/nycdoe/clean_data/highscool_performance.Rdata')
+```
+Making a graph for change over time
+```{r}
+
+```

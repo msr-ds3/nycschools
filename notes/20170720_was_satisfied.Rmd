@@ -272,7 +272,7 @@ To get to your top1 schools:
 df <- data.frame(actual_top12 = withfeatures_satisfied_08_15$was_satisfied_top12,
                  predicted_top12 = predict(object = logit_satisfied_top12, newx = mooo_top12, type = "response"),
                  actual_top1 = withfeatures_satisfied_08_15$was_satisfied_top1,
-                 predicted_top1 = predict(object = logit_satisfied_top12, newx = mooo_top1, type = "response"))
+                 predicted_top1 = predict(object = logit_satisfied_top1, newx = mooo_top1, type = "response"))
 summary(df)
 df <-
   df %>%

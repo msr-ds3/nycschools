@@ -1,0 +1,48 @@
+---
+title: "School Placement"
+author: "Rivka"
+date: "7/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(readxl)
+
+load("/data/nycdoe/clean_data/midDBN_hs_zone_eighth_grade_placement.Rdata")
+load("/data/nycdoe/clean_data/join_zone_bio.Rdata")
+
+placementData <- midDbn_hs_zone_data
+
+join_zone_bio
+
+placed <- join_zone_bio %>% filter(schools == "mid") %>% select(student_id_scram, year, zoned_hs_dbn)
+
+#%>% gather("schooltype","dbn", em, hs, mid) %>% filter(!is.na(dbn)) %>% select(-year)
+
+nrow(placed_data)
+
+placed_data <- placed %>% spread(schooltype, dbn)
+
+placed_data %>% filter(!is.na(em) & !is.na(mid) & !is.na(hs))%>% group_by(student_id_scram) %>% summarise(count = n())
+
+
+```
+
+See count of students in each middle school DBN
+```{r}
+placementData %>% group_by(mid) %>% summarise(count = n())
+```
+
+```{r}
+placementData %>% group_by(mid, )
+
+```
+
+
