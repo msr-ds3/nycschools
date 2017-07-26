@@ -19,7 +19,7 @@ load("/data/nycdoe/clean_data/bio_data.Rdata")
 
 
 ```
-clean bio data (remove na student_ids)
+clean bio data (remove na student_ids) #only one
 ```{r}
 bio_data <- bio_data %>% filter(!is.na(student_id_scram))
 
@@ -27,11 +27,10 @@ bio_data <- bio_data %>% filter(!is.na(student_id_scram))
 
 Get number students in each school across all years
 ```{r}
-
 bio_data %>% group_by(dbn) %>% summarise(totalNumStudents = n())
 
 ```
-Plot number in each school ##ERROR
+Plot number in each school ##ERROR too many dbns
 ```{r}
 bio_data %>% 
   group_by(dbn, student_id_scram) %>% 
@@ -43,7 +42,6 @@ number schools in our bio data file--2,312 (!!!!!!!!!!!!!!)
 ```{r}
 nrow(bio_data %>% group_by(dbn) %>% 
   summarise())
-
 ```
 
 #ERROR I think 0 included everything...staggering in weird way
@@ -54,6 +52,11 @@ bio_data %>% group_by(dbn) %>%
   ggplot(aes(x = totalNumStudents)) + 
   geom_histogram() +
   ylab("Num schools")
+
+```
+
+```{r}
+bio_data %>% group_by(dbn) %>% summarise(count = n()) %>% group_by(count) %>% summarise(countx = n())
 ```
 
 plot schools with same number students facet by year
@@ -106,17 +109,18 @@ multi_count <- bio_data %>% group_by(dbn, ethnicity == 'Multi-Racial', year)%>% 
 number students in each dbn each year
 ```{R}
 num_students_dbn <- bio_data %>% group_by(dbn, year) %>% summarise(totalNumStudents = n())
+
 ```
 
 join the race counts with student count by dbn and year
 ```{r}
-all_counts <- inner_join(asian_count, hispanic_count, by = c("dbn","year"))
+all_counts <- full_join(asian_count, hispanic_count, by = c("dbn","year"))
 
-all_counts <- inner_join(all_counts, white_count, by = c("dbn", "year"))
+all_counts <- full_join(all_counts, white_count, by = c("dbn", "year"))
 
-all_counts <- inner_join(all_counts, black_count, by = c("dbn", "year"))
-all_counts <- inner_join(all_counts, native_american_count, by = c("dbn", "year"))
-all_counts <- inner_join(all_counts, multi_count, by = c("dbn", "year"))
+all_counts <- full_join(all_counts, black_count, by = c("dbn", "year"))
+all_counts <- full_join(all_counts, native_american_count, by = c("dbn", "year"))
+all_counts <- full_join(all_counts, multi_count, by = c("dbn", "year"))
 
 #rename cols
 colnames(all_counts)[4] <- "asian_count"
@@ -139,6 +143,16 @@ all_counts <- all_counts %>% mutate(percentAsian = asian_count/totalNumStudents 
                                     percentHispanic = hispanic_count/totalNumStudents*100, 
                                     percentNativeAmer = native_amer_count/totalNumStudents*100, 
                                     percentMulti =  multi_count/totalNumStudents*100)
+
+all_counts %>% filter(year ==2005)
+
+bio_data %>% filter(year ==2005)
+```
+
+save the data
+```{r}
+ethnicity_per_school <- all_counts
+save(ethnicity_per_school, file = "/data/nycdoe/clean_data/ethnicity_per_school.Rdata")
 
 ```
 
