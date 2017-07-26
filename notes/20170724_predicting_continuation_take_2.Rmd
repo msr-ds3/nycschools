@@ -99,8 +99,10 @@ bios9 <-
   bios8 %>%
   select(did_continue, everything()) %>%
   filter(year %in% c("2005", "2006", "2007", "2008", "2009", "2010", "2011"))
+
+rm(bios1, bios2, bios3, bios4, bios5, bios6, bios7)
 ```
-Note: 2012-2014 don't list disability, so can't use ONLY those years with one other and have disability as a feature in the model.
+Note: 2012-2015 don't have the disability disability column - dropping those years for now.
 
 Create test and train sets.
 ```{r}
@@ -435,9 +437,11 @@ model_data_3 <-
   summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
 
 X_train <- model.matrix(~ grade_level + sex + ethnicity + disability + ell + poverty + perc_attendance + quantiled_GPA, data=model_data_3)
+#X_train <- model.matrix(~ -1 + quantiled_GPA, data=model_data_3)
 y_train <- cbind(model_data_3$no, model_data_3$yes)
 
 model_3 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+#model_4 <- glm(cbind(model_data_3$yes, model_data_3$no) ~ quantiled_GPA, family="binomial", data=model_data_3)
 ```
 
 ##Evaluating model_3.
@@ -551,3 +555,151 @@ roc_data_2 %>%
   xlim(0, 1) +
   geom_abline(linetype='dashed')
 ```
+
+## 20170725
+
+```{r}
+bios11 <-
+  bios9 %>%
+  mutate(student_id_scram=as.character(student_id_scram)) %>%
+  left_join(stud_perf_quantGPA, by=c('year','student_id_scram'))
+
+sample_size <- floor(0.80 * nrow(bios11))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(bios11)), size=sample_size)
+
+train_4 <- bios11[train_ind, ]
+test_4 <- bios11[-train_ind, ]
+ 
+model_data_4 <- 
+  train_4 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, home_lang, pob_code, ell, swd, poverty, perc_attendance, quantiled_GPA) %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_train <- model.matrix(~ grade_level + sex + ethnicity + ell + poverty + perc_attendance + quantiled_GPA, data=model_data_4)
+#X_train <- model.matrix(~ -1 + quantiled_GPA, data=model_data_3)
+y_train <- cbind(model_data_4$no, model_data_4$yes)
+
+model_4 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+##Evaluating model_4 - removed disability.
+
+Distribution of our predictions.
+```{r}
+model_data_test_4 <-
+  test_4 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, home_lang, pob_code, ell, swd, poverty, perc_attendance, quantiled_GPA) %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + ell + poverty + perc_attendance + quantiled_GPA, data=model_data_test_4)
+
+y_test <-
+  cbind(model_data_test_4$no, model_data_test_4$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+
+data.frame(p=as.numeric(predict(model_4, X_test, type="response")) ) %>% 
+  ggplot(aes(x=p)) + 
+  geom_histogram()
+```
+
+
+Calculating accuracy of our model.
+```{r}
+predictions_model_4 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_4, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_4)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_4_stats <-
+  predictions_model_4 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+  
+accuracy <-
+  model_4_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_4_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_4_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_4_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_4_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+ROC curve
+```{r}
+roc_data_3 <- data.frame(matrix(NA, nrow = 1000, ncol = 2))
+colnames(roc_data_3) <- c("tpr", "fpr")
+
+for (i in 1:1000) {
+  thresh=i/1000
+  temp <-
+    model_4_stats %>%
+    summarise(tpr=sum(did_not_cont*(p_did_not_continue>=thresh))/sum(did_not_cont),
+              fpr=sum(cont*(p_did_not_continue>=thresh))/sum(cont))
+
+  roc_data_3[i, 'tpr'] <- temp[1, 1]
+  roc_data_3[i, 'fpr'] <- temp[1, 2]
+}
+
+roc_data_3 %>%
+  ggplot(aes(x=fpr, y=tpr)) +
+  geom_line() +
+  xlim(0, 1) +
+  geom_abline(linetype='dashed')
+```
+
+## To Do:
+1. How to calculate AUC
+2. Split up models 3 + 4 stats by demographics
+3. Attendance -> factor
+4. Feature interactions?
+5. Cross validation and regularization?
