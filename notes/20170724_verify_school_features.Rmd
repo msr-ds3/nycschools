@@ -57,6 +57,11 @@ highSchoolPresRate %>% filter(dbn == '13K596')
 
 bio_data %>% filter(dbn == '13K596')%>%group_by(year) %>% summarise(count = n())
 
+#another example: http://www.nytimes.com/2011/12/09/nyregion/12-new-york-schools-with-low-test-scores-are-put-on-closing-list.html
+bio_data %>% filter(dbn == '13K336')%>%group_by(year) %>% summarise(count = n())
 ```
+```{r}
 
+
+```
 

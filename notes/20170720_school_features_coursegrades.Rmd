@@ -29,15 +29,38 @@ read_gpa_with_year <- function(filename) {
     coursetitle = col_character()))
   df$year <- year
   df <- select(df, year, student_id, schooldbn, grade, coursetitle, markingperiod, numericequivalent)
+}
+
+
+read_gpa_last_file <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols_only(
+    student_id_scram = col_character(), 
+    schooldbn = col_character(),
+    grade = col_integer(),
+    credits = col_double(),
+   mark = col_character(),
+    markingperiod = col_integer(), 
+    numericequivalent = col_integer(), 
+    student_id_scram = col_character(), 
+    coursetitle = col_character()))
+  print(year)
+  df$year <- year
+  df <- select(df, year, student_id_scram, schooldbn, grade, coursetitle, markingperiod, numericequivalent)
   }
 
 gpa_backup <- map_df(files[1:10], read_gpa_with_year)
 
 gpa <- gpa_backup
 
+course_grades <- gpa %>% select(-markingperiod)
+
 ```
 
 ```{r}
-View(gpa)
+
+avg_gpa_by_school <- course_grades %>% 
+  group_by(schooldbn,year, grade) %>% filter(!is.na(numericequivalent)) %>%
+  summarize(GPA = mean(numericequivalent), student_count = n())
 
 ```
