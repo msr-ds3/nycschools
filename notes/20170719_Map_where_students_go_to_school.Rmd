@@ -1,5 +1,5 @@
 ---
-title: "Where Do students go to school?? RO"
+title: "Where do students go to school?"
 output: html_document
 ---
 
@@ -107,6 +107,8 @@ K is 0, all other grades before K are dropped because students are not zoned for
 ```{R}
 all_bios <- bios
 
+all_bios <- bio_data
+
 #bios_noNA <- all_bios%>% 
  # filter(!is.na(student_id_scram)) #only one student id is na
 
@@ -114,6 +116,8 @@ bios_dbn <- all_bios %>%
   select(student_id_scram, dbn, year, grade_level)
 
 bios_dbn <- bios_dbn %>% mutate(grade_level = ifelse(grade_level == "0K", "00", grade_level))
+
+#filter out grades before k
 bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filter(!is.na(grade_level))
 
 #join data so you see students
@@ -121,10 +125,24 @@ bios_dbn <- bios_dbn %>% full_join(map_grade, by = c("grade_level" = "grades"))
 ################################ MOST IMPORTANT ###############################################
 test<- bios_dbn %>% group_by(student_id_scram, schools, year, dbn) %>% summarise() 
 
-#only keep entry to each school level for each student
-bio_distinct_schools <- test %>% group_by(student_id_scram, schools) %>% filter(year == min(year))
-####################################################################################################
+#take this for high school placement
+max_year_min_year <- test %>% group_by(student_id_scram, schools) %>% filter(ifelse(schools == "mid", year == max(year), year == min(year)))
 
+max_year_min_year <- max_year_min_year %>% spread(schools, dbn)
+mid_school <- max_year_min_year %>% filter(!is.na(mid)) %>% select(student_id_scram, mid)
+hs_school <- max_year_min_year %>% filter(!is.na(hs)) %>% select(student_id_scram, hs)
+
+mid_hs_data <- inner_join(mid_school, hs_school, by = "student_id_scram")
+
+max_year_min_year <- max_year_min_year %>%group_by(student_id_scram) %>% summarise(mid = max(mid), hs = max(hs))
+
+#only keep entry to each school level for each student
+bio_distinct_schools <- test %>% 
+  group_by(student_id_scram, schools) %>% 
+  filter(year == min(year))
+
+####################################################################################################
+#id: 999962962 all years
 #view
 #bios_dbn %>% group_by(student_id_scram, dbn, schools) %>% summarise()%>% arrange(student_id_scram) %>% View()
 
@@ -156,7 +174,10 @@ bio_distinct_schools
 #############################
 #ZONE DATA DOES NOT INCLUDE ANYTHING FROM 2005 or 2006
 #############################
+# 2,208,271 rows of students in all years but 2005 and 2006
 
+#numbers of students that appear n number of times
+all_bios %>% filter(year >2006) %>% group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(countx = n())
 #sanity checks are commented
 
 # zoneData %>% select(student_id_scram, zoned_elm_dbn, zoned_mid_dbn, zoned_hs_dbn, year) %>%
@@ -174,7 +195,15 @@ distinct_zones <- zoneData %>% select(1:8) %>%  #used to be callued df_distinct
 
 #df_distinct %>% group_by(year) %>% summarise()
 
+zoneData %>% select(1:8)
+
+#9,502,347 rows in distict zones
 distinct_zones
+
+nrow(distinct_zones %>% filter(year != 2007))
+
+
+
 ```
 #Join zone and bio data on DBN
 We joined the data on DBNs from the zoned data and the DBN's from the bio data on each elementary, middle and high school.
@@ -184,13 +213,26 @@ For students who began elementary, middle or high school before 2007, we do NOT 
 <span style="color:red">Data Quirks:</span> Students are zoned to an elementary, middle and high school every time he/she is zoned. We had to detirmine the year a student entered elementary school, for example, and then find that year for that student in the zoned data to detirmine the zone that student was mapped to the year he/she entered elementary school. Zones change quite frequently and this granular data was important for the numbers later on.
 
 ```{R}
+
+save(zoneData, file = "/data/nycdoe/clean_data/common_data_frames/zoneData.Rdata")
+
+zoneData <- zoneData %>% select(1:8)
+
 # reformat df to wide format
 bio_distinct_schools <- bio_distinct_schools %>% spread(schools, dbn)
 
 #join the data frames. All records that do not have a match are dropped. This ensures that the map will only include data that exists
-join_zone_bio <- inner_join(bio_distinct_schools, distinct_zones, by = c("year", "student_id_scram"))
+#join_zone_bio <- inner_join(bio_distinct_schools, distinct_zones, by = c("year", "student_id_scram"))
+
+
+join_zone_bio <- inner_join(bio_distinct_schools, zoneData, by = c( "student_id_scram", "year"))
 
 join_zone_bio
+
+join_zone_bio %>% select(student_id_scram, year, em, hs, mid) %>% gather("schooltype","dbn", em, hs, mid) %>% filter(!is.na(dbn))
+
+
+save(join_zone_bio, file = "/data/nycdoe/clean_data/join_zone_bio.Rdata")
 ```
 
 
@@ -239,9 +281,10 @@ join_zone_bio_matches <- join_zone_bio_matches%>%
 join_zone_bio_matches <- join_zone_bio_matches%>% 
   mutate(matchHS = ifelse(!is.na(zoned_hs_dbn), ifelse(zoned_hs_dbn == em, 1, 0), -1))
 ```
+
 #Elementary school data
 
-add a collumn for boro
+add a col for boro
 * note that some DBNs are not in <b>district-boro-n<b> format. 
 ```{r}
 # some dbns don't have a 0 boro and the dbn is in not in standard dbn format
@@ -249,6 +292,11 @@ add a collumn for boro
 
 em_data <- join_zone_bio_matches %>%filter(!is.na(em)) %>% mutate(zoned_boro = substr(zoned_elm_dbn, 3,3))
 em_data
+
+midDbn_hs_zone_data <- join_zone_bio_matches %>%filter(!is.na(mid)) %>% mutate(zoned_boro = substr(zoned_hs_dbn, 3,3))
+
+#this is for feeder schools
+save(midDbn_hs_zone_data, file = "/data/nycdoe/clean_data/midDBN_hs_zone_eighth_grade_placement.Rdata")
 
 #%>% 
 
@@ -270,11 +318,17 @@ local_zones_data <- full_join( (em_data %>% group_by(zoned_elm_dbn) %>% summaris
            by = c("zoned_elm_dbn" = "em") )
 
 local_zones_data <- full_join( local_zones_data, 
-           (join_zone_bio_matches %>% filter(matchEM == 1) %>% group_by(zoned_elm_dbn) %>% 
-   summarise(attending_zoned_dbn = n())),   by = "zoned_elm_dbn")
+           (join_zone_bio_matches %>% 
+              filter(matchEM == 1) %>% 
+              group_by(zoned_elm_dbn) %>% 
+              summarise(attending_zoned_dbn = n())),   by = "zoned_elm_dbn")
 
 local_zones_data <- local_zones_data %>% mutate(perc_local = (attending_zoned_dbn/went_to_dbn)*100)
-local_zones_data %>% mutate(boro = substr(zoned_elm_dbn, 3, 3)) %>% filter(!is.na(attending_zoned_dbn)) %>% group_by(boro) %>% summarize(sum_attended_zoned=sum(attending_zoned_dbn), sum_zoned= sum(zoned_to_dbn)) %>%
+
+local_zones_data %>% mutate(boro = substr(zoned_elm_dbn, 3, 3)) %>% 
+  filter(!is.na(attending_zoned_dbn)) %>% 
+  group_by(boro) %>% 
+  summarize(sum_attended_zoned=sum(attending_zoned_dbn), sum_zoned= sum(zoned_to_dbn)) %>%
   mutate(perc_boro_att_zoned = (sum_attended_zoned/sum_zoned)*100)
 
 

@@ -1,0 +1,94 @@
+---
+title: "Untitled"
+author: "Keri and David"
+date: "7/25/2017"
+output: html_document
+---
+Necessary Set-up Stuff
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+```
+Loading in student year, student_id, and grade level from June Biog
+```{r}
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, grade_level)
+}
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+level <- map_df(files, read_june_with_year)
+```
+Loading in Math and ELA stuff
+```{r}
+read_ela_math_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, ela_scale_score, math_scale_score)
+}
+files <- Sys.glob('/data/nycdoe/Math and ELA/*.csv')
+ela_math <- map_df(files, read_ela_math_with_year)
+```
+
+Combine dataframes
+```{r}
+elem_scores <- full_join(level, ela_math, by = c("year","student_id_scram"))
+```
+Filtering the Dataframes
+```{r}
+#Adding the percent rank for each student per year
+elem_scores_v2 <-
+  elem_scores %>% 
+  group_by(year, grade_level) %>%
+  filter(!(is.na(ela_scale_score)&is.na(math_scale_score))) %>%
+  mutate(ela_percent = (percent_rank(ela_scale_score))*100) %>%
+  mutate(math_percent = (percent_rank(math_scale_score))*100)
+
+#Gathering the dataset for dataframe for average to easily be computed
+elem_scores_v3 <-
+  elem_scores_v2 %>% 
+  group_by(year,student_id_scram,grade_level) %>%
+  select(year, student_id_scram, grade_level, ela_percent, math_percent) %>%
+  gather(subject, percentile, ela_percent:math_percent, factor_key=TRUE)
+
+#Average the percentiles for each student per year
+final_elem_scores <-
+  elem_scores_v3 %>%
+  group_by(year,student_id_scram,grade_level) %>%
+  filter(!is.na(percentile)) %>%
+  summarize(average_percentile=mean(percentile))
+```
+Loading Regents Data
+```{r}
+load('/data/nycdoe/clean_data/highscool_performance.Rdata')
+```
+
+```{r}
+
+high_scores <- average_percentile
+
+all_scores <-
+  full_join(high_scores, final_elem_scores, by=c("year","student_id_scram","grade_level"))
+
+tidy_all_percentile <-
+  all_scores %>%
+  group_by(student_id_scram, year, grade_level) %>%
+  gather(subject, percentile, 4:5)
+
+avg_all_percentile <- 
+  tidy_all_percentile %>%
+  filter(!is.na(percentile)) %>%
+  group_by(student_id_scram, year, grade_level) %>%
+  summarize(performance = mean(percentile))
+
+#AVERAGE JOE : 100002032 #
+
+save(avg_all_percentile, file = '/data/nycdoe/clean_data/avg_all_long.Rdata')
+```

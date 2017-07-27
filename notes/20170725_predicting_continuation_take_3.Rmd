@@ -246,7 +246,7 @@ Calculating the AUC
 ```{r}
 auc <-
   model_2_stats %>%
-  summarise(auc=mean(p_did_not_continue>=0.5))
+  summarise(auc=sum(p_did_not_continue>=0.5)/sum(total))
 
 auc
 ```
@@ -415,6 +415,10 @@ stud_perf_quantGPA <-
   stud_perf_quantGPA %>%
   select(year, student_id_scram, quantiled_GPA) %>%
   mutate(year=as.character(year))
+
+```
+
+```{r}
 
 bios10 <-
   bios9 %>%
@@ -697,9 +701,359 @@ roc_data_3 %>%
   geom_abline(linetype='dashed')
 ```
 
+AUC and ROC for Model 4 using ROCR package
+```{r}
+auc_data <-
+  model_4_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+## Break up model_4 stats by ethnicity
+
+```{r}
+model_4_stats_with_x <-
+  model_4_stats %>%
+  mutate(Row.names=as.numeric(Row.names)) %>%
+  left_join(X_test_new, by="Row.names")
+
+model_4_stats_ethnic <-
+  model_4_stats_with_x %>%
+  select(2:6, grep('ethnicity', colnames(.))) %>%
+  gather('ethnicity', 'value', 6:11) %>%
+  filter(value==1) %>%
+  group_by(ethnicity)
+```
+
+Distribution of predictions.
+```{r}
+model_4_stats_ethnic %>%
+  ungroup() %>%
+  ggplot(aes(x=p_did_not_continue)) + 
+  geom_histogram() +
+  facet_wrap(~ethnicity)
+```
+
+Accuracy.
+```{r}
+accuracy <-
+  model_4_stats_ethnic %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+Precision.
+```{r}
+precision <-
+  model_4_stats_ethnic %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+True positive rate.
+```{r}
+tpr <-
+  model_4_stats_ethnic %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+False positive rate.
+```{r}
+fpr <-
+  model_4_stats_ethnic %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot.
+```{r}
+model_4_stats_ethnic %>%
+  group_by(ethnicity, predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students') +
+  facet_wrap(~ethnicity)
+```
+
+## Joining in school data.
+```{r}
+load('/data/nycdoe/clean_data/att_rate_per_school_with_year.Rdata')
+
+SchoolPresRate <-
+  SchoolPresRate %>%
+  select(year, dbn, presentRate) %>%
+  mutate(year=as.character(year), school_avg_attendance=presentRate)
+
+bios12 <-
+  bios8 %>%
+  left_join(SchoolPresRate, by=c('year','dbn')) %>%
+  filter(year %in% c("2005", "2006", "2007", "2008", "2009", "2010", "2011"))
+
+load('/data/nycdoe/clean_data/percent_grad_per_school.Rdata')
+
+percent_grad <-
+  percent_grad %>%
+  select(dbn, percentGrad) %>%
+  mutate(school_avg_grad=as.character(round((percentGrad/10))*10))
+
+bios13 <-
+  bios12 %>%
+  left_join(percent_grad, by='dbn')
+
+load('/data/nycdoe/clean_data/regent_avgs_with_count.Rdata')
+
+regent_avgs_with_count <-
+  regent_avgs_with_count %>%
+  group_by(dbn, main_exams) %>%
+  summarise(avg_score=mean(avgGrade)) %>%
+  mutate(avg_score=as.character(round((avg_score/10))*10)) %>%
+  spread(main_exams, avg_score)
+
+regent_avgs_with_count[is.na(regent_avgs_with_count)] <- 'Missing'
+colnames(regent_avgs_with_count)[2:6] <- paste("school_avg_", colnames(regent_avgs_with_count[,c(2:6)]), sep = "")
+
+bios14 <-
+  bios13 %>%
+  left_join(regent_avgs_with_count, by='dbn') %>%
+  mutate(student_id_scram=as.character(student_id_scram)) %>%
+  left_join(stud_perf_quantGPA, by=c('year','student_id_scram')) %>%
+  mutate(perc_attendance=as.character(round((perc_attendance*10))*10),
+school_avg_attendance=as.character(round((school_avg_attendance*10))*10))
+
+bios15 <-
+  bios14 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, home_lang, pob_code, ell, swd, poverty, perc_attendance, quantiled_GPA, dbn, school_avg_attendance, school_avg_grad, school_avg_English, school_avg_History, school_avg_Language, school_avg_Math, school_avg_Science)
+
+bios15[is.na(bios15)] <- 'Not Applicable'
+
+sample_size <- floor(0.80 * nrow(bios15))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(bios15)), size=sample_size)
+
+train_5 <- bios15[train_ind, ]
+test_5 <- bios15[-train_ind, ]
+ 
+model_data_5 <- 
+  train_5 %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_train <- model.matrix(~ grade_level + sex + ethnicity + ell + poverty + perc_attendance + quantiled_GPA + school_avg_attendance + school_avg_grad + school_avg_English + school_avg_History + school_avg_Language + school_avg_Math + school_avg_Science, data=model_data_5)
+y_train <- cbind(model_data_5$no, model_data_5$yes)
+
+model_5 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+##Evaluating model_5.
+
+Distribution of our predictions.
+```{r}
+model_data_test_5 <-
+  test_5 %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + ell + poverty + perc_attendance + quantiled_GPA + school_avg_attendance + school_avg_grad + school_avg_English + school_avg_History + school_avg_Language + school_avg_Math + school_avg_Science, data=model_data_test_5)
+
+y_test <-
+  cbind(model_data_test_5$no, model_data_test_5$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+
+data.frame(p=as.numeric(predict(model_5, X_test, type="response")) ) %>% 
+  ggplot(aes(x=p)) + 
+  geom_histogram()
+```
+
+
+Calculating accuracy of our model.
+```{r}
+predictions_model_5 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_5, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_5)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_5_stats <-
+  predictions_model_5 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+  
+accuracy <-
+  model_5_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_5_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_5_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_5_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_5_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 5', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+ROC curve
+```{r}
+roc_data_5 <- data.frame(matrix(NA, nrow = 1000, ncol = 2))
+colnames(roc_data_5) <- c("tpr", "fpr")
+
+for (i in 1:1000) {
+  thresh=i/1000
+  temp <-
+    model_5_stats %>%
+    summarise(tpr=sum(did_not_cont*(p_did_not_continue>=thresh))/sum(did_not_cont),
+              fpr=sum(cont*(p_did_not_continue>=thresh))/sum(cont))
+
+  roc_data_5[i, 'tpr'] <- temp[1, 1]
+  roc_data_5[i, 'fpr'] <- temp[1, 2]
+}
+
+roc_data_5 %>%
+  ggplot(aes(x=fpr, y=tpr)) +
+  geom_line() +
+  xlim(0, 1) +
+  geom_abline(linetype='dashed')
+```
+
+If we can only speak to 100 students and we take the students the model is most confident will drop out, what percentage of students we take will actually drop out?
+
+```{r}
+model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), cum_did_not_cont=cumsum(did_not_cont), perc_cum_did_not_cont=cum_did_not_cont/sum(did_not_cont)) %>%
+  ggplot(aes(x=cum_total, y=perc_cum_did_not_cont)) +
+  geom_line() +
+  scale_x_continuous(labels=comma) +
+  scale_y_continuous(labels=percent) +
+  labs(x="Number of Students Predicted To Drop Out", y="Percent of Students Caught (Correctly Identified As Dropping Out)")
+```
+```{r}
+b <- data.frame(c(1,1))
+b[1,1] <-
+  model_5_stats %>%
+  summarise(sum(did_not_cont)/sum(total))
+
+
+model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), cum_did_not_cont=cumsum(did_not_cont)) %>%
+  ggplot(aes(x=cum_total, y=cum_did_not_cont)) +
+  geom_line() +
+  scale_x_continuous(labels=comma) +
+  scale_y_continuous(labels=comma) +
+  labs(x="Number of Students Predicted To Drop Out", y="Number of Students Caught (Correctly Identified As Dropping Out)") +
+  geom_abline(linetype='dashed', color='blue') +
+  geom_abline(slope=b[1,1], intercept=0, linetype='dashed', color='red')
+  #geom_abline(aes(data=b), slope=b$c.1..1., intercept=0, linetype='dashed', color=b$c.1..1., show.legend = T) 
+```
+
+```{r}
+model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), perc_cum_total=cum_total/sum(total), cum_did_not_cont=cumsum(did_not_cont), perc_cum_did_not_cont=cum_did_not_cont/sum(did_not_cont)) %>%
+  ggplot(aes(x=perc_cum_total, y=perc_cum_did_not_cont)) +
+  geom_line() +
+  scale_x_continuous(labels=percent) +
+  scale_y_continuous(labels=percent) +
+  labs(x="Percent of Students Predicted To Drop Out", y="Percent of Students Caught (Correctly Identified As Dropping Out)") +
+  geom_abline(linetype='dashed', color='red') +
+  geom_abline(linetype='dashed', slope=(1/b[1,1]), intercept=0, color='blue')
+```
+
+AUC and ROC for Model 5 using ROCR package
+```{r}
+auc_data <-
+  model_5_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+
 ## To Do:
-1. How to calculate AUC
-2. Split up models 3 + 4 stats by demographics
-3. Attendance -> factor
-4. Feature interactions?
-5. Cross validation and regularization?
+1. How to calculate AUC - tomorrow morning ✓
+2. Split up models 3 + 4 stats by demographics ✓
+3. Attendance -> factor ✓
+4. Feature interactions? Francois
+5. Cross validation and regularization? ?
+
+6. Look at predicted values/coefs -> ask Jake how to make plots, etc.
+
+

@@ -1,0 +1,56 @@
+---
+title: "School Placement"
+author: "Rivka"
+date: "7/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(readxl)
+
+#load("/data/nycdoe/clean_data/midDBN_hs_zone_eighth_grade_placement.Rdata")
+#load("/data/nycdoe/clean_data/join_zone_bio.Rdata")
+
+placementData <- midDbn_hs_zone_data
+
+join_zone_bio
+
+placed <- join_zone_bio %>% ungroup() %>% filter(schools == "mid") %>% select(student_id_scram, year, dbn)
+colnames(placed)[3] <- "mid_dbn"
+placedhs <- join_zone_bio %>% ungroup() %>% filter(schools == "hs") %>% select(student_id_scram, year, dbn)
+colnames(placedhs)[3] <- "hs_dbn"
+
+join_mid_hs <- inner_join(placed, placedhs, by = c("student_id_scram"))
+
+where_students_go_feeder_data <- join_mid_hs %>% group_by(mid_dbn, hs_dbn) %>% summarise(count = n())
+
+save(where_students_go_feeder_data, file = "/data/nycdoe/clean_data/where_students_go_feeder.Rdata")
+#%>% gather("schooltype","dbn", em, hs, mid) %>% filter(!is.na(dbn)) %>% select(-year)
+
+nrow(placed)
+
+#placed_data <- placed %>% spread(schooltype, dbn)
+
+#placed_data %>% filter(!is.na(em) & !is.na(mid) & !is.na(hs))%>% group_by(student_id_scram) %>% summarise(count = n())
+
+
+```
+
+See count of students in each middle school DBN
+```{r}
+placementData %>% group_by(mid) %>% summarise(count = n())
+```
+
+```{r}
+join_mid_hs %>% group_by(mid_dbn, hs_dbn) %>% summarise(count = n())
+
+```
+
+
