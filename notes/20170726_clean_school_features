@@ -61,7 +61,8 @@ totalEthnicity_per_school <- totalEthnicity_all_years %>%
          percentWhite = totalWhite/totalStudents, 
          percentHispanic = totalHispanic/totalStudents, 
          percentNativeAmer = totalNativeAmer/totalStudents, 
-         percentAsian = totalAsian/totalStudents)
+         percentAsian = totalAsian/totalStudents,
+         percentMulti = totalMultiRacial/totalStudents)
 
 #save data
 save(totalEthnicity_per_school, file ="/data/nycdoe/clean_data/totalEthnicity_per_school.Rdata")
