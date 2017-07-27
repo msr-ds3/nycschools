@@ -67,6 +67,8 @@ map_exams <- data.frame(main_exams, exam_code)
 regent_data_max_mark_per_exam <- regent_data %>% 
   group_by(student_id_scram, exam_code, item_name, dbn) %>% 
   summarise(maxMark = max(mark)) 
+
+
 ############################# Year is NOT included #########################
 #get count of students per school
 
@@ -102,7 +104,7 @@ regent_school_avg_per_exam <- regent_data_max_mark_per_exam %>%
 regent_school_avg_per_exam <- regent_school_avg_per_exam %>% 
   filter(!is.na(maxMark))
 
-#get avg grade per school, pre year per exam
+#get avg grade per school, per exam
 regent_school_avg_per_exam <- regent_school_avg_per_exam %>% 
   group_by(dbn, item_name, exam_code) %>%
   summarise(avgGrade = mean(maxMark))
@@ -146,9 +148,7 @@ save(regent_school_avg_per_exam, file = "/data/nycdoe/clean_data/regent_school_a
 
 regent_avgs_with_count <- inner_join(regent_data_count_per_school, regent_school_avg_per_exam, by = c("dbn", "exam_code", "item_name"))
 
-######################### save to df #########################################
-save(regent_avgs_with_count, file = "/data/nycdoe/clean_data/regent_avgs_with_count.Rdata")
-##############################################################################
+
 
 ```
 
@@ -160,6 +160,8 @@ regent_avgs_with_count <- regent_avgs_with_count %>% mutate(exam_initial = subst
 
 regent_avgs_with_count <- inner_join(map_exams, regent_avgs_with_count, by = c("exam_code" = "exam_initial" ))
 
-
+######################### save to df #########################################
+save(regent_avgs_with_count, file = "/data/nycdoe/clean_data/regent_avgs_with_count.Rdata")
+##############################################################################
 
 ```

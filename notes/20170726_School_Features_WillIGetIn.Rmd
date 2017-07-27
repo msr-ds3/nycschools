@@ -1,0 +1,67 @@
+---
+title: "School Features - Big Merge for WilliGetIn.com"
+author: "Rivka and Ro"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(dplyr)
+
+```
+
+## load files
+
+```{r}
+
+###### JUST SCHOOL #####
+
+# regents scores
+load("~/../../data/nycdoe/clean_data/all_regents_score_per_school.Rdata")
+
+# ela and math
+load("~/../../data/nycdoe/clean_data/FINAL_ela_math_by_ONLYschool_per_school.Rdata")
+
+#attendance rate
+load("~/../../data/nycdoe/clean_data/att_rate_per_school.Rdata")
+
+#poverty
+load("~/../../data/nycdoe/clean_data/school_feature_poverty.Rdata")
+
+#ethnicity
+load("~/../../data/nycdoe/clean_data/totalEthnicity_per_school.Rdata")
+
+
+```
+
+#let the joins begin!!!
+
+```{r}
+
+# left joining poverty and ethnicity first because they are the largest data frames available for this model
+will_i_get_in_school_features <- left_join(poverty, totalEthnicity_per_school, by = c("dbn"))
+
+# removing the total amount of students - totalStudents.x and .y
+will_i_get_in_school_features <- will_i_get_in_school_features %>%
+  select(-totalStudents.y)
+
+# join attendance rate to data frame
+will_i_get_in_school_features <- left_join(will_i_get_in_school_features, att_rate_per_school)
+
+# join ela and math scores
+# total column = total students in ela and math (remove tomorrow 7/27)
+will_i_get_in_school_features <- left_join(will_i_get_in_school_features, scores_by_school_only, by = "dbn")
+
+# adding regents scores
+will_i_get_in_school_features <- left_join(will_i_get_in_school_features, all_regents_scores_per_school, by = "dbn")
+
+will_i_get_in_school_features
+
+save(will_i_get_in_school_features, file = "/data/nycdoe/clean_data/will_i_get_in_school_features.Rdata")
+
+```

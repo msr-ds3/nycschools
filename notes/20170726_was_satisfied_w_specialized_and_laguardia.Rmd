@@ -1,0 +1,526 @@
+---
+title: "20170726 - Do You Get What You Want (cont. 2)"
+author: "Anandini, Thoa"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+hsaps_files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+june_biog_files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+```
+### Read in data from HSAPS
+
+Here we read in HSAPS data from 2009 to 2015 (in academic year term: 2009-10 to 2015-16) because they have small proportion of NAs in `final_disposition`, and they have `lag_xxx_applied`.
+
+We choose the following colums:
+
+* `r1programcode1` : specify the program that a student ranks as 1st choice in the first round.
+* `r1programtype1`: specify the most likely admissions method used by the high school program applied to by the student 
+* `r1eligibility1`: specify whether a student is eligible to apply to the selected program. Note: it is possible that the student does not fit any of the program's priority groups, and, therefore, is not eligible for admission.
+* `final_disposition`: specify the program that a student gets finalized to.
+* `shsat_tested`: specify whether a student took a Specialized HS test
+* `shsat_offered`: specify whether a student got an offer from a specialized HS.
+* `any_log_offer`: specify whether a student got an offer from LaGuardia HS.
+* `lag_xxx_applied`:
+* `lag_xxx_offer`:
+* `r1programcode2`:
+* `r1programcode3`:
+
+```{r read-hsaps, results='hide', message=TRUE}
+# read hsaps data
+read_satisfied_w_lag_3ranks <- function(filename) {
+  print(filename)
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            r1eligibility1=col_character(),
+                                            final_disposition_round=col_character(),
+                                            shsat_offer=col_character(),
+                                            shsat_tested=col_character(),
+                                            lag_arts_offer=col_character(),
+                                            lag_arts_applied=col_character(),
+                                            lag_dance_offer=col_character(),
+                                            lag_dance_applied=col_character(),
+                                            lag_instr_offer=col_character(),
+                                            lag_instr_applied=col_character(),
+                                            lag_vocal_offer=col_character(),
+                                            lag_vocal_applied=col_character(),
+                                            lag_drama_offer=col_character(),
+                                            lag_drama_applied=col_character(),
+                                            lag_theatre_offer=col_character(),
+                                            lag_theatre_applied=col_character()))
+  df$year <- year
+  df <- df %>% 
+    select(year, 
+           student_id_scram, 
+           r1programcode1,
+           r1programtype1,
+           r1eligibility1,
+           r1programcode2,
+           r1programcode3,
+           contains("final_disposition"),
+           shsat_tested,
+           shsat_offer,
+           any_lag_offer,
+           starts_with("lag"),
+           borough,
+           feeder_borough,
+           feeder_dbn)
+}
+
+satisfied_09_15 <- map_df(hsaps_files[5:11], read_satisfied_w_lag_3ranks)
+```
+
+```{r clean}
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(r1programtype1 = ifelse(r1programtype1 == "Ed. opt.",
+                                  yes = "Ed. Opt.",
+                                  no = r1programtype1))
+
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(r1eligibility1 = ifelse(r1eligibility1 == "N",
+                                 yes = "0",
+                                 no = ifelse(r1eligibility1 == "Y",
+                                             yes = "1",
+                                             no = r1eligibility1))) %>%
+  mutate(r1eligibility1 = as.numeric(r1eligibility1))
+
+# drop 115 students who are NOT from 1 of the 5 boroughs: 572,603 rows become 572,488 rows
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  filter(borough %in% c("M", "K", "Q", "R", "X"))
+
+#### SHSAT_TESTED #### 
+# because we don't know what NA means, and since they account for a relatively small amount, we will covert it to 0 (just like N) as well.
+# covers 3 cases: (NA is seperately treated first)
+# 0 or 1 ==> stay same
+# Y  ==> 1
+# N ==> 0
+satisfied_09_15$shsat_tested[is.na(satisfied_09_15$shsat_tested)] <- "0"
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(shsat_tested = ifelse(shsat_tested %in% c("0", "1"),
+                              yes = shsat_tested,
+                              no = ifelse(shsat_tested == "Y",
+                                          yes = "1",
+                                          no = "0")))
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(shsat_tested = as.numeric(shsat_tested))
+
+
+#### SHSAT_OFFER ####
+satisfied_09_15$shsat_offer[is.na(satisfied_09_15$shsat_offer)] <- "0"
+satisfied_09_15 %>% count(shsat_offer)
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(shsat_offer = ifelse(shsat_offer == "0",
+                              yes = "0",
+                              no = "1"))  
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(shsat_offer = as.numeric(shsat_offer))
+
+#### ANY_LAG_OFFER ####
+# since we're only interested in whether or not you get offered by LaGuardia, we will create a new binary variable for this.
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(lag_offered = as.numeric(any_lag_offer > 0))
+
+# the NA's in 2014 and 2015 are so consistent. When we checked, they do not have r1programcode1-2-3, type1, or eligibility1. One third of them did NOT take the SHSAT, while two-thirds have NA so we can't know. 1,467 of them took shsat. shsat_offer is all NA.
+satisfied_09_15 %>%
+  filter(is.na(lag_arts_applied)) #%>% count(r1programcode3)
+
+# as said before, we will drop applicants who (1) not participate in any kind of specialized application AND (2) not have r1programcode1. That means we will drop these 3722 students. 574,488 rows go down to 568,766 rows.
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  filter(!is.na(lag_arts_applied))
+
+# now, covert the formats and types for binary values.
+
+## examine current value types:
+satisfied_09_15 %>% count(lag_arts_applied)
+satisfied_09_15 %>% count(lag_arts_offer)
+satisfied_09_15 %>% filter(is.na(r1programcode1)) %>% count(r1eligibility1, year)
+
+## convert:
+satisfied_09_15$r1eligibility1[is.na(satisfied_09_15$r1eligibility1)] <- 0
+satisfied_09_15$lag_arts_offer[is.na(satisfied_09_15$lag_arts_offer)] <- "0"
+satisfied_09_15$lag_dance_offer[is.na(satisfied_09_15$lag_dance_offer)] <- "0"
+satisfied_09_15$lag_instr_offer[is.na(satisfied_09_15$lag_instr_offer)] <- "0"
+satisfied_09_15$lag_vocal_offer[is.na(satisfied_09_15$lag_vocal_offer)] <- "0"
+satisfied_09_15$lag_drama_offer[is.na(satisfied_09_15$lag_drama_offer)] <- "0"
+satisfied_09_15$lag_theatre_offer[is.na(satisfied_09_15$lag_theatre_offer)] <- "0"
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(lag_arts_applied = ifelse(lag_arts_applied %in% c("Y", "1"), 1, 0),
+         lag_dance_applied = ifelse(lag_dance_applied %in% c("Y", "1"), 1, 0),
+         lag_instr_applied = ifelse(lag_instr_applied %in% c("Y", "1"), 1, 0),
+         lag_vocal_applied = ifelse(lag_vocal_applied %in% c("Y", "1"), 1, 0),
+         lag_drama_applied = ifelse(lag_drama_applied %in% c("Y", "1"), 1, 0),
+         lag_theatre_applied = ifelse(lag_theatre_applied %in% c("Y", "1"), 1, 0),
+         lag_arts_offer = ifelse(lag_arts_offer %in% c("OFFER", "1"), 1, 0),
+         lag_dance_offer = ifelse(lag_dance_offer %in% c("OFFER", "1"), 1, 0),
+         lag_instr_offer = ifelse(lag_instr_offer %in% c("OFFER", "1"), 1, 0),
+         lag_vocal_offer = ifelse(lag_vocal_offer %in% c("OFFER", "1"), 1, 0),
+         lag_drama_offer = ifelse(lag_drama_offer %in% c("OFFER", "1"), 1, 0),
+         lag_theatre_offer = ifelse(lag_theatre_offer %in% c("OFFER", "1"), 1, 0))
+```
+
+### Calculating the `was_satisfied` metrics
+
+```{r calculate-was-satisfied}
+
+# drop 16,762 students who NOT participated in any of these: (1) listing a top1 choice, (2) took shsat, (3) applied to Laguardia. 568,766 rows go down to 552,004 rows.
+satisfied_09_15 <-  
+  satisfied_09_15 %>%
+  filter(!is.na(r1programcode1) |
+          shsat_tested == 1 |
+          lag_arts_applied == 1 | 
+          lag_dance_applied == 1 | 
+          lag_instr_applied == 1 | 
+          lag_vocal_applied == 1 | 
+          lag_drama_applied == 1 | 
+          lag_theatre_applied == 1)
+save(satisfied_09_15, file ="/data/nycdoe/clean_data/students_w_top3_choices_09_15.Rdata")
+
+#satisfied_09_15$was_satisfied <- rep(NA, times=nrow(satisfied_09_15))
+
+
+# # those applied to Arts at LaGuardia do NOT have final_disposition matching top1 choice
+# temp %>%
+#   filter(lag_arts_applied == 1 &  final_disposition_round==r1programcode1)
+
+satisfied_09_15 <-
+  satisfied_09_15 %>%
+  mutate(was_satisfied = as.numeric((lag_arts_applied==1 & lag_arts_offer==1) |
+                                    (lag_arts_applied==1 & final_disposition==r1programcode1) |
+                                      
+                                      (lag_dance_applied==1 & lag_dance_offer==1) |
+                                      (lag_dance_applied==1 & final_disposition==r1programcode1) |
+                                      
+                                      (lag_instr_applied==1 & lag_instr_offer==1) |
+                                      (lag_instr_applied==1 & final_disposition==r1programcode1) |
+                                      
+                                      (lag_vocal_applied==1 & lag_vocal_offer==1) |
+                                      (lag_vocal_applied==1 & final_disposition==r1programcode1) |
+                                      
+                                      (lag_drama_applied==1 & lag_drama_offer==1) |
+                                      (lag_drama_applied==1 & final_disposition==r1programcode1) |
+                                      
+                                      (lag_theatre_applied==1 & lag_theatre_offer==1) |
+                                      (lag_theatre_applied==1 & final_disposition==r1programcode1) |
+                                      
+                                      (shsat_tested==1 & shsat_offer==1) |
+                                      (shsat_tested==1 & final_disposition==r1programcode1) |
+                                      
+                                      (final_disposition==r1programcode1)
+                                    ) 
+         ) %>%
+  replace_na(list(was_satisfied = 0))
+
+baseline_accuracy <- mean(satisfied_09_15$was_satisfied) 
+```
+
+### Load in: Student's features (demo & perf), Feeder's features, Highschool's features, and Programcode look-up.
+
+```{r load-other-data-frames}
+
+# load in data on students' quantiled GPA
+load('/data/nycdoe/clean_data/stud_perf_quantiledGPA.Rdata')
+perstudent_perf <- stud_perf_quantGPA
+rm(stud_perf_quantGPA)
+
+# load in students' demographics from June Biog
+read_students_hs <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            grade_level=col_integer()))
+  df$year <- year
+  df <- df %>% 
+    select(year, student_id_scram, grade_level, "feeder_dbn(june)" = dbn, sex, ethnicity, ell, swd, home_lang, poverty)
+}
+students_hs_09_15 <- map_df(june_biog_files[5:11], read_students_hs)
+
+
+# load in attendance rate per school with year, then average their attendance rate across years
+# 2201 schools in total (incl. high, middle, elementary)
+load('/data/nycdoe/clean_data/att_rate_per_school_with_year.Rdata')
+attendance_per_school_per_year <- SchoolPresRate
+rm(SchoolPresRate)
+summary(attendance_per_school_per_year)
+perschool_attendance <-
+  attendance_per_school_per_year %>%
+  group_by(dbn) %>%
+  summarize(avg_attendance_rate = mean(presentRate))
+head(perschool_attendance)
+
+# load in graduation rate per HIGH school with year: 
+# 799 high schools in total.
+load('/data/nycdoe/clean_data/percent_grad_per_school.Rdata')
+perschool_gradrate <- percent_grad
+rm(percent_grad)
+summary(perschool_gradrate)
+
+# load in regents per HIGH school per exam: 
+# 744 high schools in total.
+load('/data/nycdoe/clean_data/all_regents_score_per_school.Rdata')
+perschool_regentsscores <- all_regents_scores_per_school
+rm(all_regents_scores_per_school)
+summary(perschool_regentsscores)
+head(perschool_regentsscores)
+perschool_regentsscores %>%
+  arrange(dbn)
+
+# load in data that maps programcodes to schoolcodes - use this to map `final_disposition` to schools, in order to add school features into the model:
+# 778 program codes in total.
+load('/data/nycdoe/clean_data/schoolcodemapping.Rdata')
+percode_schoolmapping <- minimal_allschoolcodes
+rm(minimal_allschoolcodes)
+
+# create table for HIGH school's features - which will be used to map features to: `r1programcode*` and `final_disposition`
+rm(hs_features)
+hs_features <-
+  inner_join(perschool_attendance, perschool_gradrate, by="dbn") %>%
+  inner_join(perschool_regentsscores, by="dbn") %>%
+  rename("total_stud" = numStudents,
+         "total_grad" = grads,
+         "perc_grad" = percentGrad)
+
+# MIDDLE schools don't need a feature table for itself, bcz we can only have 1 feature: attendance rate, which can be read straight from the `perschool_attendance` dataframe.
+```
+
+### Add features to main table
+
+```{r add-student-features}
+withfeatures_satisfied_09_15
+
+# join applicants data with student's demographics: 552,044 rows go down to 485,824 rows because we restrict to (1) applicants must be 8th-graders in the year they apply, and (2) their feeder_dbn must match the 8th-grade dbn in June Biog.
+withfeatures_satisfied_09_15 <-
+  left_join(satisfied_09_15, students_hs_09_15, by=c("student_id_scram", "year")) %>%
+  filter(grade_level == 8 & feeder_dbn == `feeder_dbn(june)`)
+
+# REMOVING DUPLICATE ENTRIES (keep the earliest year): NEED TO DISREGARD THE `YEAR` COLUMN
+withfeatures_satisfied_09_15 <-
+  withfeatures_satisfied_09_15 %>%
+  distinct(.keep_all = TRUE)
+
+# join applicants data with student-performance-quantGPA data. NOTE: if we join by year like this, we will lose performance in previous years! THIS ONLY ALLOWS 8th-GRADE (or 7th-GRADE) GPA.
+withfeatures_satisfied_09_15 <-
+  left_join(withfeatures_satisfied_09_15, perstudent_perf, by=c("student_id_scram", "year")) %>%
+  select(-grade_level.y) %>%  
+  rename("grade_level" = grade_level.x)
+summary(withfeatures_satisfied_09_15)
+# drop scores in: ELA, Math, Sci, Soc, Regents, Outcome : because so many NA's
+withfeatures_satisfied_09_15 <-
+  withfeatures_satisfied_09_15 %>%
+  select(-(39:53))
+```
+
+```{r add-middle-school-features}
+# # yay! feeder_dbn is not NA at all!
+# withfeatures_satisfied_09_15 %>%
+#   count(is.na(feeder_dbn))
+
+# join in MIDDLE school's attendance rate
+withfeatures_satisfied_09_15 <-
+  withfeatures_satisfied_09_15 %>%
+  select(-`feeder_dbn(june)`) %>%
+  left_join(perschool_attendance, by=c("feeder_dbn" = "dbn")) %>%
+  rename("feeder_attendance" = avg_attendance_rate)
+summary(withfeatures_satisfied_09_15)
+```
+
+```{r specialized-codes}
+# Across ALL years, LaGuardia DOES have program codes, at least in final_disposition
+withfeatures_satisfied_09_15 %>% filter(final_disposition_dbn == "03M485") %>% count(year, final_disposition) # == "03M485")
+withfeatures_satisfied_09_15 %>% 
+  filter(substring(final_disposition_dbn, 3) %in% c("X445", "K449", "K430", "R605", "M475", "M692", "X696", "Q687", "M485")) %>%
+  count(year, final_disposition)
+
+# that's why now we create a table for specialized program codes
+library(readr)
+names2016 <- read_csv(url('https://data.cityofnewyork.us/api/views/7crd-d9xh/rows.csv?accessType=DOWNLOAD'))
+specialized_code_school_mapping <-
+  withfeatures_satisfied_09_15 %>% 
+  filter(substring(final_disposition_dbn, 3) %in% c("X445", "K449", "K430", "R605", "M475", "M692", "X696", "Q687", "M485")) %>%
+  group_by(final_disposition_dbn) %>%
+  select("specialized_dbn" = final_disposition_dbn, "specialized_code" = final_disposition) %>%
+  distinct(specialized_code, .keep_all = TRUE) %>%
+  arrange(specialized_dbn) %>%
+  left_join(names2016, by=c("specialized_dbn" = "dbn")) %>%
+  select(school_name, specialized_dbn, specialized_code)
+
+# apparently, students CAN NOT list any of the specialized codes above in one of their choices
+withfeatures_satisfied_09_15 %>% 
+  filter(r1programcode1 %in% specialized_code_school_mapping$specialized_code | 
+           r1programcode2 %in% specialized_code_school_mapping$specialized_code | 
+           r1programcode3 %in% specialized_code_school_mapping$specialized_code)
+```
+
+```{r map-programs-to-schools}
+
+########## CHECK ####################################################
+# what frac not having top1 choice (NA): 0.567% (2754)
+withfeatures_satisfied_09_15 %>% count(is.na(r1programcode1))
+
+# among these 2754:
+# 519 applied to lag
+# 2000 took shsat test
+# 235 both applied to lag AND took shsat test
+withfeatures_satisfied_09_15 %>%
+  filter(is.na(r1programcode1)) %>%
+  mutate(lag_applied = as.numeric(lag_arts_applied==1 | lag_dance_applied==1 | lag_instr_applied==1 | lag_vocal_applied==1 | lag_theatre_applied==1 | lag_drama_applied==1)) %>%
+  count(shsat_tested, lag_applied)
+
+temp_for_codemapping <- withfeatures_satisfied_09_15
+temp_for_codemapping <-
+  temp_for_codemapping %>%
+  left_join(percode_schoolmapping, by=c("r1programcode1" = "pgcode"), suffix=c("", ".y")) %>%
+  select(-year.y,
+         "r1r1_pgname" = pgname,
+         "r1r1_dbn" = dbn,
+         "r1r1_schoolname" = school_name,
+         "r1r1_interest" = interest,
+         "r1r1_method" = method)
+temp_for_codemapping %>% count(r1r1_method)
+
+# among Zoned types, there are 20,077 Zoned Guarantee and 3547 Zoned Priority
+temp_for_codemapping %>%
+  filter(r1programtype1 != r1r1_method) %>%
+  select(year, student_id_scram, r1programcode1, r1programtype1, r1r1_method, everything()) %>%
+  filter(r1programtype1 == "Zoned") %>%
+  count(r1r1_method)
+
+### CONFLICTS ##########
+# Q68B is considered both as "Screened" (r1programcode1) and "Audition" (r1r1_method): 82 cases
+temp_for_codemapping %>%
+  filter(r1programtype1 != r1r1_method) %>%
+  select(year, student_id_scram, r1programcode1, r1programtype1, r1r1_method, everything()) %>%
+  filter(r1programtype1 == "Screened") %>% count(r1r1_method)
+# K26H is considered both as "Screened" (r1programcode1) and "Unscreened" (r1r1_method): 1477 cases
+temp_for_codemapping %>%
+  filter(r1programtype1 != r1r1_method) %>%
+  select(year, student_id_scram, r1programcode1, r1programtype1, r1r1_method, everything()) %>%
+  filter(r1programtype1 == "Screened" & r1r1_method == "Unscreened")   %>% count(r1programcode1)
+
+
+
+########### ADD HIGH SCHOOL FEATURES ########################
+temp_for_codemapping <-
+ left_join(temp_for_codemapping, hs_features, by=c("r1r1_dbn" = "dbn")) %>%
+ rename("r1r1_attendance" = avg_attendance_rate,
+        "r1r1_total_stud" = total_stud,
+        "r1r1_total_grad" = total_grad,
+        "r1r1_perc_grad" = perc_grad,
+        "r1r1_English_regents" = English,
+        "r1r1_Math_regents" = Math,
+        "r1r1_History_regents" = History,
+        "r1r1_Science_regents" = Science)
+# Note!!! 21,266 (4.38%) rows have NA's in these school features!!
+summary(temp_for_codemapping)
+```
+
+### Start our regression!
+
+```{r create-model, message=FALSE}
+library(glmnet)
+library(scales)
+library(ROCR)
+library(Matrix)
+library(modelr)
+
+# NOTE: review the NA's in these features: 
+# + r1r1_attendance + r1r1_total_stud + r1r1_perc_grad + r1r1_English_regents + r1r1_Math_regents + r1r1_History_regents + r1r1_Science_regents
+frmula <- as.formula(was_satisfied ~ -1 + borough + sex + ethnicity + ell + swd + poverty + quantiled_GPA + 
+                                     feeder_borough + feeder_attendance)
+mooo <- model.matrix(object = frmula, 
+                     data = temp_for_codemapping)
+
+logit_satisfied <- glmnet(x = mooo,
+                          y = temp_for_codemapping$was_satisfied,
+                          family = "binomial", lambda = 0)   #lambda = 0 means no regularization
+plot(logit_satisfied)
+coef(logit_satisfied)
+```
+
+```{r model-evaluation, message=FALSE}
+# baseline-accuracy is that if you always predict ppl to be satisfied, you are right 49% times.
+(baseline_accuracy <- mean(temp_for_codemapping$was_satisfied))
+  
+df <- data.frame(actual = temp_for_codemapping$was_satisfied,
+                 predicted = predict(object = logit_satisfied, newx = mooo, type = "response"))  #, s = c(0.015, 0.01, 0.005)
+summary(df)
+df <-
+  df %>%
+  rename("predicted" = s0)
+df <-
+  df %>%
+  mutate(adjusted_pred = ifelse(predicted > 0.5, yes=1, no=0))
+
+
+# ROC curve and AUC
+pred <- prediction(df$predicted, df$actual)
+perf <- performance(pred, measure='tpr', x.measure='fpr')
+plot(perf, main = "ROC curve for k=1 classifier")
+
+performance(pred, 'auc')
+actual_negatives <- nrow(df) - sum(df$actual)
+actual_positives <- sum(df$actual)
+
+false_negatives <- nrow(df[which(df$adjusted_pred == 0 & df$actual == 1), ])
+false_positives <- nrow(df[which(df$adjusted_pred == 1 & df$actual == 0), ])
+
+true_negatives <- nrow(df[which(df$adjusted_pred == 0 & df$actual == 0), ])
+true_positives <- nrow(df[which(df$adjusted_pred == 1 & df$actual == 1), ])
+
+# ACCURACY: fraction of correct classifications
+(accuracy <- mean(df$adjusted_pred == df$actual))
+
+# RECALL, SENSITIVITY: the model identifies 40% of actual-satisfied as satisfied
+(recall <- true_positives / (true_positives + false_negatives)) 
+
+# PRECISION: fraction of positive predictions that are actually true
+(precision <- true_positives / (true_positives + false_positives))
+
+# FALSE POSITIVE RATE: 
+(false_positive_rate <- false_positives / (false_positives + true_negatives))
+confMatrix <-
+  matrix(c(true_positives, false_negatives,
+           false_positives, true_negatives),
+         nrow = 2,
+         ncol = 2,
+         byrow = TRUE,
+         dimnames = list(c("actual=T", "actual=F"),
+                         c("predicted=T", "predicted=F")))
+confMatrix
+
+# CALIBRATION PLOT: (see Ilana's work for example)
+
+# library(broom)
+# tidy(model of glm)
+# tidy(model of glm) %>% ggplot(aes(x = term, y = estimate)) + geom_pointrange(aes(ymin=estimate-std.error, ymax=estimate+std.error))
+# modelglm %>% data.grid()
+# library(modelr)
+# model_data_3 %>% distinct(quantiled_GPA)
+# model_data_3 %>% select(quantiled_GPA) %>% distinct()
+# model_data_3 %>% ungroup() %>% select(quantiled_GPA) %>% distinct()
+# model_data_3 %>% ungroup() %>% select(quantiled_GPA) %>% distinct() %>% add_predictions(model_4)
+# df <- model_data_3 %>% ungroup() %>% select(quantiled_GPA) %>% distinct()
+# df$pred <- predict(model_4, df)
+# df
+# df$pred <- predict(model_4, df, type="response")
+# df
+
+
+# intercept: most ppl don't drop out. i.e. when all is equal, you are NOT likely to drop out.
+# how to look at the coef/the plot of coef: 
+# (1) just look at heights of different coef: higher roughly means higher chance. But also pay attention to their std error. If there's not a huge jump between 2 side-by-side points, then there might not be much difference in reality but just our data.
+# (2) if look at the actual value: note that these values only make sense after exp up.
+
+```

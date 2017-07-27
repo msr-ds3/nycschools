@@ -1,0 +1,146 @@
+---
+title: "Clean school features"
+author: "Rivka"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load regents data
+load( "/data/nycdoe/clean_data/regent_avgs_with_count.Rdata")
+
+#load our ethnicty data 
+load("/data/nycdoe/clean_data/ethnicity_per_school.Rdata")
+
+#load DOE ethnicity data
+load("/data/nycdoe/clean_data/DOE_demo_per_school_per_year.Rdata")
+
+```
+
+```{r Verify Ethnicity data}
+
+#find differences in num students enrolled
+DOE_demo <- demographics_DOE_11_12_15_16 %>% select(DBN, Year, `Total Enrollment`)
+
+our_demo <- ethnicity_per_school %>% select(dbn, year, totalNumStudents)
+
+#doe data is only from 2012, joining results in previous years being dropped. (Which we want)
+join_doe_our_demo <-  inner_join(DOE_demo, our_demo, by = c("DBN" = "dbn", "Year" = "year"))
+
+#take diff of our data minus DOE data
+join_doe_our_demo <- join_doe_our_demo %>% mutate(different_enroll = totalNumStudents - `Total Enrollment`)
+
+nrow(join_doe_our_demo %>% group_by(DBN) %>% summarise(count = n())) 
+
+```
+
+plot the differeces between our data and doe data
+```{r}
+
+join_doe_our_demo %>% ggplot(aes(x = different_enroll)) + geom_histogram() + scale_y_log10() + xlim(-600, 600)
+
+join_doe_our_demo %>% group_by(DBN) %>% summarise(avgDiff = mean(different_enroll)) %>% ggplot(aes(x = avgDiff)) + geom_histogram() + scale_y_log10() + xlim(-600, 600)
+```
+Use our ethnicity data
+```{r}
+
+totalEthnicity_all_years <- ethnicity_per_school %>% 
+  group_by(dbn) %>% 
+  summarise(totalStudents = sum(totalNumStudents, na.rm = TRUE), 
+            totalWhite = sum(white_count, na.rm = TRUE), 
+            totalBlack = sum(black_count, na.rm = TRUE), 
+            totalHispanic = sum(hispanic_count, na.rm = TRUE), 
+            totalMultiRacial = sum(multi_count, na.rm = TRUE), 
+            totalNativeAmer = sum(native_amer_count, na.rm = TRUE), 
+            totalAsian = sum(asian_count, na.rm = TRUE))
+
+totalEthnicity_per_school <- totalEthnicity_all_years %>% 
+  mutate(percentBlack = totalBlack/totalStudents, 
+         percentWhite = totalWhite/totalStudents, 
+         percentHispanic = totalHispanic/totalStudents, 
+         percentNativeAmer = totalNativeAmer/totalStudents, 
+         percentAsian = totalAsian/totalStudents)
+
+#save data
+save(totalEthnicity_per_school, file ="/data/nycdoe/clean_data/totalEthnicity_per_school.Rdata")
+
+```
+
+```{r}
+join_doe_our_demo %>% 
+  ggplot(aes(x = totalNumStudents, y = `Total Enrollment`)) +
+  geom_point() + 
+  geom_abline() + 
+  geom_smooth()
+
+```
+
+
+spread feeder schools
+```{r}
+load("/data/nycdoe/clean_data/where_students_go_feeder.Rdata")
+#e/t there once
+where_students_go_feeder_data %>% group_by(mid_dbn, hs_dbn) %>% summarise(count = n()) %>% group_by(count) %>% summarise(countx = n())
+
+
+spread_feeder_mid_dbn <- where_students_go_feeder_data %>% spread(key=mid_dbn, value=count)
+
+save(spread_feeder_mid_dbn, file ="/data/nycdoe/clean_data/spread_feeder_mid.Rdata")
+
+spread_feeder_hs_dbn <- where_students_go_feeder_data %>% spread(key=hs_dbn, value=count)
+
+save(spread_feeder_hs_dbn, file ="/data/nycdoe/clean_data/spread_feeder_hs.Rdata")
+
+```
+
+
+```{r}
+
+load("/data/nycdoe/clean_data/regent_avgs_with_count.Rdata")
+
+subject_regents_grades_per_dbn <- regent_avgs_with_count %>% group_by(main_exams, dbn) %>% summarise(subjectAvg = mean(avgGrade))
+
+spread_subjects <- subject_regents_grades_per_dbn %>% spread(main_exams, subjectAvg)
+
+all_regents_scores_per_school <- spread_subjects %>% select(dbn, English, Math, History, Science) %>% filter(!is.na(English) & !is.na(Math) & !is.na(History) & !is.na(Science))
+
+save(all_regents_scores_per_school, file = "/data/nycdoe/clean_data/all_regents_score_per_school.Rdata" )
+```
+
+
+```{r}
+
+load("/data/nycdoe/clean_data/school_feature_poverty_year.Rdata")
+
+#join our poverty percent with doe 
+DOE_demo <- demographics_DOE_11_12_15_16 %>% select(DBN, Year, `# Poverty`)
+
+our_poverty <- poverty %>% select(dbn, year, sumPoverty)
+
+#doe data is only from 2012, joining results in previous years being dropped. (Which we want)
+join_doe_our_poverty <-  inner_join(DOE_demo, our_poverty, by = c("DBN" = "dbn", "Year" = "year"))
+
+#take diff of our data minus DOE data
+join_doe_our_poverty<- join_doe_our_poverty %>% mutate(differencePov = sumPoverty - `# Poverty`)
+
+
+```
+
+```{r}
+
+join_doe_our_poverty %>% 
+  ggplot(aes(x = sumPoverty, y = `# Poverty`)) +
+  geom_point() + 
+  geom_abline() + 
+  geom_smooth()
+```
+
+```{r}
+
+load("/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+
+
+```
+

@@ -1,0 +1,82 @@
+---
+title: "Connecting DBNs to DOE"
+author: "Rivka and Ro"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading data
+
+```{r}
+# June bio data
+load("~/../../data/nycdoe/clean_data/common_data_frames/bio_data.Rdata")
+
+#ela per school (take 2006:2011)
+load("~/../../data/nycdoe/clean_data/ela_avg_count_per_school.Rdata")
+
+#math per school
+load("~/../../data/nycdoe/clean_data/math_avg_count_per_school.Rdata")
+
+#doe data
+load("~/../../data/nycdoe/clean_data/DOE_demo_per_school_per_year.Rdata")
+
+
+load("~/../../data/nycdoe/clean_data/ela_math_scores_per_school.Rdata")
+
+
+
+```
+
+```{r}
+
+ela_math_scores_per_school <- ela_math_scores_per_school %>% 
+  filter(Year >=2006 & Year <= 2011) %>%
+  group_by(DBN, Grade, Year) %>%
+  summarise(num_tested_math= sum(num_tested_math),
+            mean_scale_score_math = mean(as.numeric(mean_scale_score_math)),
+            num_tested_ela = sum(num_tested_ela),
+            mean_scale_score_ela = mean(as.numeric(mean_scale_score_ela)))
+  
+
+ela_dbns <- ela_dbns %>% 
+  filter(year >=2006 & year <= 2011) %>%
+  select(ela_dbn, 
+         year, 
+         grade_level, 
+         ela_avg_scale_score, 
+         ela_students) %>% 
+  group_by(ela_dbn, grade_level, year) %>%
+  summarise(ela_avg_scale_score = mean(ela_avg_scale_score), 
+            ela_students = sum(ela_students))
+
+math_dbns <- math_dbns %>% 
+  filter(year >=2006 & year <= 2011) %>%
+  select(math_dbn, 
+         year, 
+         grade_level, 
+         math_avg_scale_score, 
+         math_students) %>%
+  group_by(math_dbn, grade_level, year) %>%
+  summarise(math_avg_scale_score = mean(math_avg_scale_score), 
+            math_students = sum(math_students))
+
+```
+
+```{r}
+
+plot_data <- inner_join(ela_math_scores_per_school, ela_dbns, by = c("DBN" = "ela_dbn", "Year" = "year"))
+
+plot_data %>% ggplot(aes(x=num_tested_ela, y=ela_students)) +
+  geom_point() +
+  geom_abline()
+
+plot_data %>% ggplot(aes(x=mean_scale_score_ela, y=ela_avg_scale_score)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth()
+
+```
