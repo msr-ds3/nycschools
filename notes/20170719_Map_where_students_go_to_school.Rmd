@@ -8,7 +8,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(readr)
 library(tidyverse)
-#library(tigris)
 library(dplyr)
 library(leaflet)
 library(sp)
@@ -122,6 +121,7 @@ bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filte
 
 #join data so you see students
 bios_dbn <- bios_dbn %>% full_join(map_grade, by = c("grade_level" = "grades"))
+
 ################################ MOST IMPORTANT ###############################################
 test<- bios_dbn %>% group_by(student_id_scram, schools, year, dbn) %>% summarise() 
 

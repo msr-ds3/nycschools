@@ -15,13 +15,31 @@ library(tidyverse)
 library(dplyr)
 library(readxl)
 
-#load("/data/nycdoe/clean_data/midDBN_hs_zone_eighth_grade_placement.Rdata")
+load('/data/nycdoe/clean_data/common_data_frames/bio_data.Rdata')
+```
 
-load("/data/nycdoe/clean_data/join_zone_bio.Rdata")
+#Fix school data! dont join on zones. feeder school file is messed up!!!
+```{r}
+all_bios <- bio_data
 
-#placementData <- midDbn_hs_zone_data
+#bios_noNA <- all_bios%>% 
+ # filter(!is.na(student_id_scram)) #only one student id is na
 
-join_zone_bio
+bios_dbn <- all_bios %>% 
+  select(student_id_scram, dbn, year, grade_level)
+
+bios_dbn <- bios_dbn %>% mutate(grade_level = ifelse(grade_level == "0K", "00", grade_level))
+
+#filter out grades before k
+bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filter(!is.na(grade_level))
+
+#join data so you see students
+bios_dbn <- bios_dbn %>% full_join(map_grade, by = c("grade_level" = "grades"))
+
+save(bios_dbn, file = "/data/nycdoe/clean_data/bios_dbn.Rdata")
+
+```
+```{r}
 
 placed <- join_zone_bio %>% ungroup() %>% filter(schools == "mid") %>% select(student_id_scram, dbn)
 colnames(placed)[2] <- "mid_dbn"
@@ -45,11 +63,6 @@ nrow(placed)
 #placed_data <- placed %>% spread(schooltype, dbn)
 
 #placed_data %>% filter(!is.na(em) & !is.na(mid) & !is.na(hs))%>% group_by(student_id_scram) %>% summarise(count = n())
-
-
-```
-
-```{r}
 
 
 ```

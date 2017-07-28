@@ -1,0 +1,132 @@
+---
+title: "Regent_Percent_Rank"
+author: "David and Keri"
+date: "7/26/2017"
+output: html_document
+---
+#This is the new code for getting student performace. This time, students are grouped by year and grade_level, not just year
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+
+load('/data/nycdoe/clean_data/student_perf_feature.Rdata')
+```
+#Take grade_level from June Biops and add it to regents table
+```{r}
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, grade_level)
+}
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+level <- map_df(files, read_june_with_year)
+
+regents <- full_join(level, regents, by = c("year","student_id_scram"))
+```
+#Convert all regent data into percent rank values by year and grade_level
+```{r}
+#Create a table of just student_id, year and grade_level. Later will left join on to this. Drop all NAs
+student_regents_percentile <-
+  regents %>%
+  select(student_id_scram,year,grade_level) %>%
+  filter(!(is.na(student_id_scram) | is.na(year) | is.na(grade_level)))
+
+#Get percentile of each regent:           
+#Math
+regent_just_math <- regents %>%
+  filter(!(is.na(student_id_scram) | is.na(year) | is.na(grade_level)|is.na(regents_math)))%>%
+  mutate(regents_math = as.numeric(regents_math))%>%
+  select(student_id_scram,year,grade_level, regents_math)%>%
+  group_by(year,grade_level)%>%
+  mutate(math_percent=percent_rank(regents_math)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_math, by=c("student_id_scram", "year", "grade_level"))
+ 
+student_regents_percentile <- 
+  student_regents_percentile %>% 
+  select(-regents_math)
+
+#English
+regent_just_english <- regents %>%
+  filter(!(is.na(student_id_scram) | is.na(year) | is.na(grade_level)|is.na(regents_english)))%>%
+  mutate(regents_english = as.numeric(regents_english))%>%
+  select(student_id_scram,year,grade_level, regents_english)%>%
+  group_by(year,grade_level)%>%
+  mutate(english_percent=percent_rank(regents_english)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_english, by=c("student_id_scram", "year", "grade_level"))
+ 
+student_regents_percentile <- 
+  student_regents_percentile %>% 
+  select(-regents_english)
+
+#Language
+regent_just_language <- regents %>%
+  filter(!(is.na(student_id_scram) | is.na(year) | is.na(grade_level)|is.na(regents_language)))%>%
+  mutate(regents_language = as.numeric(regents_language))%>%
+  select(student_id_scram,year,grade_level, regents_language)%>%
+  group_by(year,grade_level)%>%
+  mutate(language_percent=percent_rank(regents_language)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_language, by=c("student_id_scram", "year", "grade_level"))
+ 
+student_regents_percentile <- 
+  student_regents_percentile %>% 
+  select(-regents_language)
+
+#History
+regent_just_history <- regents %>%
+  filter(!(is.na(student_id_scram) | is.na(year) | is.na(grade_level)|is.na(regents_history)))%>%
+  mutate(regents_history = as.numeric(regents_history))%>%
+  select(student_id_scram,year,grade_level, regents_history)%>%
+  group_by(year,grade_level)%>%
+  mutate(history_percent=percent_rank(regents_history)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_history, by=c("student_id_scram", "year", "grade_level"))
+ 
+student_regents_percentile <- 
+  student_regents_percentile %>% 
+  select(-regents_history)
+
+#Science
+regent_just_science <- regents %>%
+  filter(!(is.na(student_id_scram) | is.na(year) | is.na(grade_level)|is.na(regents_science)))%>%
+  mutate(regents_science = as.numeric(regents_science))%>%
+  select(student_id_scram,year,grade_level, regents_science)%>%
+  group_by(year,grade_level)%>%
+  mutate(science_percent=percent_rank(regents_science)*100)
+
+student_regents_percentile <-
+  left_join(student_regents_percentile, regent_just_science, by=c("student_id_scram", "year", "grade_level"))
+ 
+student_regents_percentile <- 
+  student_regents_percentile %>% 
+  select(-regents_science)
+
+```
+Avergage out the percentiles of each regent on each student by grade_level and year
+```{r}
+backup <- student_regents_percentile
+
+tidy_regents_percentile <- student_regents_percentile %>%
+  group_by(student_id_scram,year,grade_level) %>%
+  gather(subject,percentile,4:8)
+
+average_percentile <- tidy_regents_percentile %>%
+  filter(!is.na(percentile)) %>%
+  group_by(student_id_scram,year) %>%
+  summarize(average_percentile = mean(percentile))
+  
+save(average_percentile,file='/data/nycdoe/clean_data/highscool_performance.Rdata')
+```
