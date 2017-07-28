@@ -1,0 +1,156 @@
+---
+title: "Map of Feeder Schools"
+author: "Rivka and Ro"
+date: "7/27/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## load files
+
+```{r}
+
+# shape file for school zones
+hs_zones <- GET("https://data.cityofnewyork.us/api/geospatial/j4gs-ge7j?method=export&format=GeoJSON")
+hs_dbns <- readOGR(content(hs_zones,'text'), 'OGRGeoJSON', verbose = F)
+
+load("/data/nycdoe/clean_data/where_students_go_feeder_year.Rdata")
+
+```
+
+
+## function for inputting a middbn and outputting hs dbns
+```{r}
+
+# function for inputting a middbn and outputting hs dbns
+ 
+middle_to_high <- function(middle_dbn) {
+  where_students_go_feeder_data_year %>% filter(mid_dbn == middle_dbn)
+}
+
+# sampling the function with a middle school
+middle_to_high("10X368")
+
+
+```
+
+
+#mapping the function
+```{r}
+
+mid_to_high <- mid_to_high %>% ungroup() %>% mutate(hs_dbn = as.factor(hs_dbn))
+hs_map <- merge(hs_dbns, mid_to_high, by.x = "dbn", by.y = "hs_dbn")
+
+#plot map
+pal <- colorNumeric(palette = "Reds",
+                    domain = range(hs_map@data$count, na.rm=T))
+
+leaflet(hs_map) %>%
+  #addTiles() %>% 
+  addPolygons(weight = .5, fillColor = ~pal(count), popup = ~paste("Number of Students:", count), fillOpacity = .7) %>% 
+  addLegend(pal = pal, values = ~count, opacity = 1) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-73.98, 40.75, zoom = 13)
+
+
+############## map icon ###############
+
+school_icon <- makeIcon(
+  iconUrl = "http://www.freeiconspng.com/uploads/high-school-icon-png-8.png",
+  iconWidth = 38, iconHeight = 38,
+)
+
+
+############## Function to get map ###############
+
+map_mid_to_high <- function(middle_school, school_year) {
+  
+  mid_to_high <- where_students_go_feeder_data_year %>% filter(mid_dbn == middle_school & year == school_year)
+  
+  hs_map <- merge(hs_dbns, mid_to_high, by.x = "dbn", by.y = "hs_dbn")
+
+  #plot map
+  pal <- colorNumeric(palette = "Reds",
+                    domain = range(hs_map@data$count, na.rm=T))
+
+  leaflet(hs_map) %>%
+    #addTiles() %>% 
+    addPolygons(weight = .5, fillColor = ~pal(count), popup = ~paste("Number of Students:", count, "</br>School Code:", dbn), fillOpacity = .7) %>% 
+    addLegend(pal = pal, values = ~count, opacity = 1, 
+              title = "<p>Where Students go </br> from Middle School </br> to High School</p>") %>%
+     addMarkers(~-73.85887472057718, ~40.849304131586, popup = ~as.factor(mid_dbn), label = ~mid_dbn, icon = school_icon) %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    setView(-73.98, 40.75, zoom = 13)
+
+}
+
+# issue, not every school comes up
+map_mid_to_high("11X083", 2014)
+
+
+```
+
+### high school to middle school
+```{r}
+
+hs_to_mid <- where_students_go_feeder_data_year %>% select(hs_dbn, mid_dbn, year, count) %>% arrange(hs_dbn)
+
+```
+
+### function for map from high school to middle school
+```{r, echo=FALSE}}
+
+ms_zones <- GET("https://data.cityofnewyork.us/api/geospatial/awbp-qqq3?method=export&format=GeoJSON")
+ms_dbns <- readOGR(content(ms_zones,'text'), 'OGRGeoJSON', verbose = F)
+
+hs_to_mid <- hs_to_mid %>% ungroup() %>% mutate(mid_dbn = as.factor(mid_dbn), hs_dbn = as.factor(hs_dbn))
+
+hs_to_mid <- hs_to_mid %>% filter(hs_dbn == "10X368", year == 2009)
+
+ms_map <- merge(ms_dbns, hs_to_mid, by.x = "dbn", by.y = "mid_dbn")
+
+#doesn't exist for stuyvesant or brooklyn latin
+pal <- colorNumeric(palette = "Reds",
+                    domain = range(ms_map@data$count, na.rm=T))
+
+  leaflet(ms_map) %>%
+    #addTiles() %>% 
+    addPolygons(weight = .5, fillColor = ~pal(count), popup = ~paste("Number of Students:", count, "</br>School Code:", dbn), fillOpacity = .7) %>% 
+    addLegend(pal = pal, values = ~count, opacity = 1, 
+              title = "<p>Where Students come from </br> to a High School</p>") %>%
+     #addMarkers(~-73.85887472057718, ~40.849304131586, popup = ~as.factor(hs_dbn), label = ~hs_dbn, icon = school_icon) #%>%
+    addProviderTiles("CartoDB.Positron") %>%
+    setView(-73.98, 40.75, zoom = 13)
+
+
+############## Function to get map ###############
+
+map_hs_to_mid <- function(high_school, school_year) {
+  
+  hs_to_mid <- hs_to_mid %>% filter(hs_dbn == high_school & year == school_year)
+  
+  ms_map <- merge(ms_dbns, hs_to_mid, by.x = "dbn", by.y = "mid_dbn")
+
+  #plot map
+  pal <- colorNumeric(palette = "Reds",
+                    domain = range(ms_map@data$count, na.rm=T))
+
+  leaflet(ms_map) %>%
+    #addTiles() %>% 
+    addPolygons(weight = .5, fillColor = ~pal(count), popup = ~paste("Number of Students:", count, "</br>School Code:", dbn), fillOpacity = .7) %>% 
+    addLegend(pal = pal, values = ~count, opacity = 1, 
+              title = "<p>Where Students come from </br> to a High School</p>") %>%
+     #addMarkers(~-73.85887472057718, ~40.849304131586, popup = ~as.factor(hs_dbn), label = ~hs_dbn, icon = school_icon) #%>%
+    addProviderTiles("CartoDB.Positron") %>%
+    setView(-73.98, 40.75, zoom = 13)
+
+}
+
+# issue, not every school comes up
+map_hs_to_mid("10X368", 2009)
+
+
+```

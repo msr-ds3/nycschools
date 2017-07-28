@@ -1,0 +1,186 @@
+---
+title: "GPA vs Performance"
+author: "Keri and David"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(scales)
+theme_set(theme_bw())
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+load('/data/nycdoe/clean_data/student_perf_feature.Rdata')
+```
+
+Correlating Student Performance with Average GPA
+```{r}
+
+stud_gpa_perf <- left_join(avg_all_percentile, gpa4, by=c("year","student_id_scram"))
+
+stud_gpa_perf2 <- 
+  stud_gpa_perf %>%
+  filter(!is.na(GPA))
+
+stud_gpa_perf3 <-
+  stud_gpa_perf2 %>%
+  mutate(gpa_bin=round(GPA/5)*5) 
+
+stud_gpa_perf3_plot <-
+  stud_gpa_perf3 %>%
+  group_by(gpa_bin) %>%
+  count() %>% 
+  ggplot(aes(x=gpa_bin, y = gpa_perf)) +
+  geom_point(aes(size=n, alpha=n))
+
+```
+Percentile-ing GPA citywide 
+```{r}
+stud_gpa_perf2.5 <-
+  stud_gpa_perf2 %>%
+  filter(!is.na(GPA)) %>%
+  group_by(year, grade_level) %>%
+  mutate(rank_gpa = (percent_rank(GPA))*100)
+
+binned_summarize <-
+  stud_gpa_perf2.5 %>%
+  filter(grade_level >=3) %>%
+  mutate(gpa_bin = round(rank_gpa/5)*5) %>%
+  group_by(gpa_bin, grade_level) %>%
+  summarize(low25=quantile(performance, 0.25), mid = quantile(performance, 0.5), high75=quantile(performance,0.75), 
+            low10=quantile(performance,0.10), high90=quantile(performance,0.9)) %>%
+  ggplot(aes(x= gpa_bin, y= mid)) +
+  geom_line()+
+  facet_wrap(~grade_level) +
+  geom_ribbon(aes(ymin=low25, ymax=high75), alpha=0.2, fill="red") +
+  geom_ribbon(aes(ymin=low10, ymax=high90), alpha= 0.1,fill="red") +
+  labs(title = "GPA vs Performance CITYWIDE", x="GPA", y="Performance")
+plot(binned_summarize)
+
+```
+
+Correlating average GPA and average test scores 
+```{r}
+#SPREADING STUDENT GPA ON GRADE LEVEL
+stud_gpa_perf2<-
+  stud_gpa_perf2 %>%
+  group_by(student_id_scram, grade_level) %>%
+  summarize(GPA = max(GPA))
+
+intermediate <-
+  stud_gpa_perf2 %>%  
+  filter(!is.na(grade_level)) %>%
+  filter(grade_level >= 3) %>%
+  group_by(student_id_scram) %>%
+  select(student_id_scram) %>%
+  unique()
+
+survivor_gpa_perf <-
+  left_join(intermediate, stud_gpa_perf2, by = "student_id_scram")
+
+gpa_select <-
+  survivor_gpa_perf %>%
+  spread(grade_level, GPA)
+
+#SPREADING STUDENT PERFORMANCE ON GRADE LEVEL
+stud_per2<-
+  stud_gpa_perf %>%
+  group_by(student_id_scram, grade_level) %>%
+  summarize(performance = max(performance))
+
+intermediate2 <-
+  stud_per2 %>%  
+  filter(!is.na(grade_level)) %>%
+  filter(grade_level >= 3) %>%
+  group_by(student_id_scram) %>%
+  select(student_id_scram) %>%
+  unique()
+
+survivor_per <-
+  left_join(intermediate2, stud_per2, by = "student_id_scram")
+
+per_select <-
+  survivor_per %>%
+  spread(grade_level, performance)
+
+#CONCATENATING BOTH DATA FRAMES
+all_per_gpa <-
+  left_join(gpa_select, per_select, by="student_id_scram")
+
+colnames(all_per_gpa) = c('student_id_scram','gpa1','gpa2','gpa3','gpa4','gpa5','gpa6','gpa7','gpa8','gpa9','gpa10','gpa11','gpa12','gpaNA',
+                          'per1','per2','per3','per4','per5','per6','per7','per8','per9','per10','per11','per12','perNA')
+
+all_per_gpa <-
+  all_per_gpa %>%
+  select(-gpa1,-gpa2,-gpaNA,-per1,-per2,-perNA)
+
+#CORRELATING GPA AND PERFORMANCE BASED ON GRADE LEVEL
+cor_gpa_spread <- 
+  data.frame(cor(x=all_per_gpa[,2:11], y=all_per_gpa[,12:21]))
+  
+```
+
+```{r}
+all_per_gpa_3 <-all_per_gpa %>% select(student_id_scram, per3, gpa3) %>%filter(!is.na(per3)&!is.na(gpa3)) 
+cor_gpa_per_3 <- data.frame(cor(x=all_per_gpa_3[,2], y = all_per_gpa_3[,3])) %>% mutate(grade = "per3")
+
+all_per_gpa_4 <-all_per_gpa %>% select(student_id_scram, per4, gpa4) %>%filter(!is.na(per4)&!is.na(gpa4)) 
+cor_gpa_per_4 <- data.frame(cor(x=all_per_gpa_4[,2], y = all_per_gpa_4[,3]))%>% mutate(grade = "per4")
+
+all_per_gpa_5 <-all_per_gpa %>% select(student_id_scram, per5, gpa5) %>%filter(!is.na(per5)&!is.na(gpa5)) 
+cor_gpa_per_5 <- data.frame(cor(x=all_per_gpa_5[,2], y = all_per_gpa_5[,3]))%>% mutate(grade = "per5")
+
+all_per_gpa_6 <-all_per_gpa %>% select(student_id_scram, per6, gpa6) %>%filter(!is.na(per6)&!is.na(gpa6)) 
+cor_gpa_per_6 <- data.frame(cor(x=all_per_gpa_6[,2], y = all_per_gpa_6[,3]))%>% mutate(grade = "per6")
+
+all_per_gpa_7 <-all_per_gpa %>% select(student_id_scram, per7, gpa7) %>%filter(!is.na(per7)&!is.na(gpa7)) 
+cor_gpa_per_7 <- data.frame(cor(x=all_per_gpa_7[,2], y = all_per_gpa_7[,3]))%>% mutate(grade = "per7")
+
+all_per_gpa_8 <-all_per_gpa %>% select(student_id_scram, per8, gpa8) %>%filter(!is.na(per8)&!is.na(gpa8)) 
+cor_gpa_per_8 <- data.frame(cor(x=all_per_gpa_8[,2], y = all_per_gpa_8[,3]))%>% mutate(grade = "per8")
+
+all_per_gpa_9 <-all_per_gpa %>% select(student_id_scram, per9, gpa9) %>%filter(!is.na(per9)&!is.na(gpa9)) 
+cor_gpa_per_9 <- data.frame(cor(x=all_per_gpa_9[,2], y = all_per_gpa_9[,3]))%>% mutate(grade = "per9")
+
+all_per_gpa_10 <-all_per_gpa %>% select(student_id_scram, per10, gpa10) %>%filter(!is.na(per10)&!is.na(gpa10)) 
+cor_gpa_per_10 <- data.frame(cor(x=all_per_gpa_10[,2], y = all_per_gpa_10[,3]))%>% mutate(grade = "per10")
+
+all_per_gpa_11 <-all_per_gpa %>% select(student_id_scram, per11, gpa11) %>%filter(!is.na(per11)&!is.na(gpa11)) 
+cor_gpa_per_11 <- data.frame(cor(x=all_per_gpa_11[,2], y = all_per_gpa_11[,3]))%>% mutate(grade = "per11")
+
+all_per_gpa_12 <-all_per_gpa %>% select(student_id_scram, per12, gpa12) %>%filter(!is.na(per12)&!is.na(gpa12)) 
+cor_gpa_per_12 <- data.frame(cor(x=all_per_gpa_12[,2], y = all_per_gpa_12[,3]))%>% mutate(grade = "per12")
+
+cor_all <- full_join(cor_gpa_per_3, cor_gpa_per_4, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_5, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_6, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_7, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_8, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_9, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_10, by="grade")
+
+cor_all <- full_join(cor_all, cor_gpa_per_11, by="grade")
+cor_all <- full_join(cor_all, cor_gpa_per_12, by="grade")
+cor_all <- subset(cor_all, select=c("grade","gpa3",'gpa4','gpa5','gpa6','gpa7','gpa8','gpa9','gpa10','gpa11','gpa12'))
+
+cor_all_long <-
+  cor_all %>%
+  gather(grade, value, 2:11)
+
+colnames(cor_all_long) = c("performance","grade","correlation")
+
+cor_all_long %>%
+  #mutate(grade_to = sprintf("Grade %d", grade_to)) %>% 
+  ggplot(aes(x=performance, y=correlation, color = as.factor(grade), fill=as.factor(grade))) +
+  geom_point(size=10) +
+  ylab("Correlation") +
+  scale_y_continuous(label=percent) +
+  scale_x_discrete(limits = c("per3","per4","per5","per6","per7","per8","per9","per10","per11","per12"))
+```
