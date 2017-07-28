@@ -321,7 +321,7 @@ local_zones_data <- full_join( local_zones_data,
            (join_zone_bio_matches %>% 
               filter(matchEM == 1) %>% 
               group_by(zoned_elm_dbn) %>% 
-              summarise(attending_zoned_dbn = n())),   by = "zoned_elm_dbn")
+              summarise(attending_zoned_dbn = n())),by = "zoned_elm_dbn")
 
 local_zones_data <- local_zones_data %>% mutate(perc_local = (attending_zoned_dbn/went_to_dbn)*100)
 
