@@ -1,0 +1,83 @@
+---
+title: "Breathtaking Plots and Graphs"
+author: "Keri and David"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(scales)
+theme_set(theme_bw())
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+```
+Long and Wide dataframes of "TRUE SURVIVORS'S ##PERFORMANCE"
+```{r}
+something <-
+avg_all_percentile %>%
+  group_by(student_id_scram, grade_level) %>%
+  summarize(percentile = max(performance))
+
+something2 <-
+  something %>%
+  group_by(student_id_scram) %>%
+  filter(!is.na(grade_level)) %>%
+  filter(grade_level >= 6) %>%
+  count() %>% 
+  filter(n==6) %>% 
+  select(student_id_scram)
+
+long_survivors <- 
+  left_join(something2, something, by="student_id_scram")
+
+long_survivors2 <-
+  long_survivors %>%
+  filter(grade_level >= 6, grade_level<12) %>%
+  count() %>%
+  filter(n==6) %>%
+  select(student_id_scram)
+
+long_survivors3 <-
+  left_join(long_survivors2, long_survivors, by="student_id_scram")
+
+wide_survivors <- 
+  long_survivors3 %>%
+  spread(grade_level, percentile)
+
+colnames(wide_survivors) <- 
+  c("student_id_scram","grade6",
+    "grade7","grade8","grade9","grade10","grade11")
+
+```
+Plotting the correlation coefficients
+```{r}
+cor_matrix_wide <- data.frame(cor(wide_survivors[,2:7]))
+cor_matrix_wide <-
+  cor_matrix_wide %>% mutate(grade_to= c("grade6","grade7","grade8","grade9","grade10","grade11"))
+
+cor_matrix_long <-
+  cor_matrix_wide %>%
+  gather(grade_from, value, 1:6)
+
+cor_matrix_long <- cor_matrix_long %>%
+  mutate(grade_from = as.numeric(substr(grade_from,6,7))) %>%
+  mutate(grade_to = as.numeric(substr(grade_to,6,7)))
+
+cor_matrix_long <-
+  cor_matrix_long %>%
+  filter(grade_from > grade_to) 
+
+cor_matrix_long %>%
+  #mutate(grade_to = sprintf("Grade %d", grade_to)) %>% 
+  ggplot(aes(x=grade_from, y=value, color = as.factor(grade_to), fill=as.factor(grade_to))) +
+  geom_line() +
+  ylab("Correlation") +
+  labs(color = "Relative to \nperformance \nin grade:", x= "Grade")
+```
