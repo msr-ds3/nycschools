@@ -15,7 +15,7 @@ library(dplyr)
 
 #load june_bio (nothing has been done to this df--not cleaned)
 
-load("/data/nycdoe/clean_data/bio_data.Rdata")
+load("/data/nycdoe/clean_data/common_data_frames/bio_data.Rdata")
 
 
 ```

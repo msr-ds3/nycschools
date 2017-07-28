@@ -107,6 +107,8 @@ K is 0, all other grades before K are dropped because students are not zoned for
 ```{R}
 all_bios <- bios
 
+all_bios <- bio_data
+
 #bios_noNA <- all_bios%>% 
  # filter(!is.na(student_id_scram)) #only one student id is na
 
@@ -122,6 +124,17 @@ bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filte
 bios_dbn <- bios_dbn %>% full_join(map_grade, by = c("grade_level" = "grades"))
 ################################ MOST IMPORTANT ###############################################
 test<- bios_dbn %>% group_by(student_id_scram, schools, year, dbn) %>% summarise() 
+
+#take this for high school placement
+max_year_min_year <- test %>% group_by(student_id_scram, schools) %>% filter(ifelse(schools == "mid", year == max(year), year == min(year)))
+
+max_year_min_year <- max_year_min_year %>% spread(schools, dbn)
+mid_school <- max_year_min_year %>% filter(!is.na(mid)) %>% select(student_id_scram, mid)
+hs_school <- max_year_min_year %>% filter(!is.na(hs)) %>% select(student_id_scram, hs)
+
+mid_hs_data <- inner_join(mid_school, hs_school, by = "student_id_scram")
+
+max_year_min_year <- max_year_min_year %>%group_by(student_id_scram) %>% summarise(mid = max(mid), hs = max(hs))
 
 #only keep entry to each school level for each student
 bio_distinct_schools <- test %>% 
@@ -186,6 +199,11 @@ zoneData %>% select(1:8)
 
 #9,502,347 rows in distict zones
 distinct_zones
+
+nrow(distinct_zones %>% filter(year != 2007))
+
+
+
 ```
 #Join zone and bio data on DBN
 We joined the data on DBNs from the zoned data and the DBN's from the bio data on each elementary, middle and high school.
@@ -194,10 +212,9 @@ For students who began elementary, middle or high school before 2007, we do NOT 
 
 <span style="color:red">Data Quirks:</span> Students are zoned to an elementary, middle and high school every time he/she is zoned. We had to detirmine the year a student entered elementary school, for example, and then find that year for that student in the zoned data to detirmine the zone that student was mapped to the year he/she entered elementary school. Zones change quite frequently and this granular data was important for the numbers later on.
 
-
-this is naive assumption that students are zoned to the same schools every year. Below is NOT the most accurate!
-#ERROR!XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```{R}
+
+save(zoneData, file = "/data/nycdoe/clean_data/common_data_frames/zoneData.Rdata")
 
 zoneData <- zoneData %>% select(1:8)
 
@@ -206,6 +223,7 @@ bio_distinct_schools <- bio_distinct_schools %>% spread(schools, dbn)
 
 #join the data frames. All records that do not have a match are dropped. This ensures that the map will only include data that exists
 #join_zone_bio <- inner_join(bio_distinct_schools, distinct_zones, by = c("year", "student_id_scram"))
+
 
 join_zone_bio <- inner_join(bio_distinct_schools, zoneData, by = c( "student_id_scram", "year"))
 
@@ -277,6 +295,7 @@ em_data
 
 midDbn_hs_zone_data <- join_zone_bio_matches %>%filter(!is.na(mid)) %>% mutate(zoned_boro = substr(zoned_hs_dbn, 3,3))
 
+#this is for feeder schools
 save(midDbn_hs_zone_data, file = "/data/nycdoe/clean_data/midDBN_hs_zone_eighth_grade_placement.Rdata")
 
 #%>% 
@@ -302,7 +321,7 @@ local_zones_data <- full_join( local_zones_data,
            (join_zone_bio_matches %>% 
               filter(matchEM == 1) %>% 
               group_by(zoned_elm_dbn) %>% 
-              summarise(attending_zoned_dbn = n())),   by = "zoned_elm_dbn")
+              summarise(attending_zoned_dbn = n())),by = "zoned_elm_dbn")
 
 local_zones_data <- local_zones_data %>% mutate(perc_local = (attending_zoned_dbn/went_to_dbn)*100)
 

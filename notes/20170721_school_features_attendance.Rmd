@@ -58,14 +58,17 @@ totalPresent <- rowSums(days_pres_only_df, na.rm = TRUE)
 
 totalAbsent <- data.frame(totalAbsent)
 totalPresent <- data.frame(totalPresent)
-
+#############
 days_only_summed <- cbind(days_only, totalAbsent, totalPresent)
+##############
+#all_days <- days_only_summed %>% select(totalPresent, totalAbsent)
 
-all_days <- days_only_summed %>% select(totalPresent, totalAbsent)
+#total_School_days <- rowSums(all_days, na.rm = TRUE)
 
-total_School_days <- rowSums(all_days, na.rm = TRUE)
+days_only_summed <-  days_only_summed %>% mutate(percentPresent = totalPresent/(totalAbsent + totalPresent))
 
-days_only_summed <- cbind(days_only_summed, total_School_days)
+
+#days_only_summed <- cbind(days_only_summed, total_School_days)
 
 #get rid of pre-k
 days_only_summed  <- days_only_summed %>% mutate(grade_level = ifelse(grade_level == "k", "00", grade_level))
@@ -76,9 +79,23 @@ days_only_summed <- days_only_summed %>% mutate(grade_level = as.integer(grade_l
 
 days_only_summed <- days_only_summed %>% filter(grade_level >= 0 & !is.na(student_id_scram))
 
-##save this table 
-save(days_only_summed, file = "/data/nycdoe/clean_data/att_rate.Rdata")
+#drop students that never showed up (divide by 0)
+days_only_summed <- days_only_summed %>% filter(!is.nan(percentPresent))
 
+att_rate_per_school <- days_only_summed %>% group_by(dbn) %>% summarise(avgAtt = mean(percentPresent))
+
+##save this table 
+save(att_rate_per_school, file = "/data/nycdoe/clean_data/att_rate_per_school.Rdata")
+
+
+
+
+```
+
+```{r}
+
+att_rate_per_school_per_grade <- days_only_summed %>% group_by(dbn, grade_level) %>% summarise(avgAtt = mean(percentPresent))
+save(att_rate_per_school_per_grade, file = "/data/nycdoe/clean_data/att_rate_per_school_per_grade.Rdata")
 ```
 
 

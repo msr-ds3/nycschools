@@ -1,0 +1,270 @@
+---
+title: "Untitled"
+author: "Keri and David"
+date: "7/26/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(scales)
+theme_set(theme_bw())
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+```
+Long and Wide dataframes of "TRUE SURVIVORS'S ##PERFORMANCE"
+```{r}
+something <-
+avg_all_percentile %>%
+  group_by(student_id_scram, grade_level) %>%
+  summarize(percentile = max(performance))
+
+something2 <-
+  something %>%
+  group_by(student_id_scram) %>%
+  filter(!is.na(grade_level)) %>%
+  filter(grade_level >= 3) %>%
+  count() %>% 
+  filter(n==10) %>% 
+  select(student_id_scram)
+
+long_survivors <- 
+  left_join(something2, something, by="student_id_scram")
+
+wide_survivors <- 
+  long_survivors %>%
+  spread(grade_level, percentile)
+
+colnames(wide_survivors) <- 
+  c("student_id_scram","grade2","grade3","grade4","grade5","grade6",
+    "grade7","grade8","grade9","grade10","grade11","grade12","gradeNA")
+
+graph3to4 <-
+  wide_survivors %>%
+  ggplot(aes(x=grade3, y=grade4)) +
+  geom_point(alpha=0.1) +
+  geom_smooth()
+plot(graph3to4)
+
+graph8to12 <-
+  wide_survivors %>%
+  ggplot(aes(x=grade11, y=grade12)) +
+  geom_point(alpha=0.1) +
+  geom_smooth()
+plot(graph8to12)
+
+```
+Plotting the correlation coefficients
+```{r}
+cor_matrix_wide <- data.frame(cor(wide_survivors[,3:12]))
+cor_matrix_wide <-
+  cor_matrix_wide %>% mutate(grade_to= c("grade3","grade4","grade5","grade6","grade7","grade8","grade9","grade10","grade11","grade12"))
+
+cor_matrix_long <-
+  cor_matrix_wide %>%
+  gather(grade_from, value, 1:10)
+
+cor_matrix_long <- cor_matrix_long %>%
+  mutate(grade_from = as.numeric(substr(grade_from,6,7))) %>%
+  mutate(grade_to = as.numeric(substr(grade_to,6,7)))
+
+cor_matrix_long <-
+  cor_matrix_long %>%
+  filter(grade_from > grade_to) 
+
+cor_matrix_long %>%
+  #mutate(grade_to = sprintf("Grade %d", grade_to)) %>% 
+  ggplot(aes(x=grade_from, y=value, color = as.factor(grade_to), fill=as.factor(grade_to))) +
+  geom_line() +
+  ylab("Correlation") +
+  scale_y_continuous(label=percent) +
+  labs(color = "Relative to \nperformance \nin grade:", x= "Grade")
+```
+
+Bin every 5 percent, calculate the quantiles 
+x/y round then multiply to y
+
+```{r}
+
+bin_wide <- long_survivors %>%
+  group_by(grade_level)%>%
+  within(bin <- as.integer(cut(percentile, quantile(percentile, probs=0:20/20, na.rm=TRUE), include.lowest=TRUE)))
+
+bin_wide %>%
+  group_by(grade_level,bin)%>%
+  mutate(rank = percent_rank(percentile)*100) %>% 
+  filter(grade_level==3) %>%
+  filter(rank==10,rank==25)
+
+bin_wide %>%
+  select(-student_id_scram) %>%
+  group_by(grade_level, bin) %>%
+  summary
+
+wide_survivors %>%
+  mutate(bin=round(grade4/5)*5) %>%
+  group_by(bin) %>%
+  summarize(lower=quantile(grade8, 0.25), mid = quantile(grade8, 0.5), upper=quantile(grade8,0.75), low=quantile(grade8,0.10), high=quantile(grade8,0.9)) %>%
+  ggplot(aes(x= bin, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") +
+  geom_abline(linetype = "dashed") +
+  labs(title="4th grade percentile vs 8th grade percentile", x="4th grade PERFORMANCE", y="8th grade PERFORMANCE" )
+
+```
+
+```{r}
+wide_survivors %>%
+  mutate(bin=round(grade4/5)*5) %>%
+  group_by(bin) %>%
+  summarize(lower=quantile(grade8, 0.25), mid = quantile(grade8, 0.5), upper=quantile(grade8,0.75), 
+            low=quantile(grade8,0.10), high=quantile(grade8,0.9)) %>%
+  ggplot(aes(x= bin, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") +
+  geom_abline(linetype = "dashed") +
+  labs(title="4th grade percentile vs 8th grade percentile", x="4th grade PERFORMANCE", y="8th grade PERFORMANCE" )
+```
+
+FUNCTION FOR PLOTTING GRADES AGAINST EACH OTHER
+```{r}
+
+# use standard eval hack to plot variable columns
+# more here: http://dplyr.tidyverse.org/articles/programming.html
+plotit <- function(df, grade_from, grade_to) {
+  grade_from <- enquo(grade_from)
+  grade_to <- enquo(grade_to)
+  
+  df %>%
+  mutate(bin=round((!!grade_from)/5)*5) %>%
+  group_by(bin) %>%
+  summarize(low25=quantile(!!grade_to, 0.25), mid = quantile(!!grade_to, 0.5), high75=quantile(!!grade_to,0.75), 
+            low10=quantile(!!grade_to,0.10), high90=quantile(!!grade_to,0.9)) %>%
+    
+  ggplot(aes(x=bin, y=mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=low25, ymax=high75), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low10, ymax=high90), alpha= 0.1,fill="blue") +
+  geom_abline(linetype = "dashed")
+}
+plotit(wide_survivors, grade4, grade11)
+
+```
+LOOK AT PROGRESSION OF TOP 10 PERCENT OF 3RD GRADE
+```{r}
+top_10_in_3 <-
+  wide_survivors %>%
+  select(student_id_scram,grade3) %>%
+  mutate(bin=round(grade3/5)*5) %>%
+  filter(bin >= 90) %>%
+  select(student_id_scram)
+
+wide_10_in_3 <- left_join(top_10_in_3, wide_survivors, by="student_id_scram")
+
+long_10_in_3 <-
+  wide_10_in_3 %>% 
+  gather(key="grade_level", value="percentile", 3:12) %>%
+  select(student_id_scram, grade_level, percentile) %>%
+  group_by(grade_level) %>%
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9)) %>% 
+  mutate(grade_level = as.numeric(substr(grade_level,6,7)))
+
+graph_long_10_in_3  <-
+  long_10_in_3 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") 
+  
+plot(graph_long_10_in_3)
+
+```
+PLOT BOTTOM 10 PERCENT OF 10TH GRADE PROGRESSION
+```{r}
+bot_10_in_3 <-
+  wide_survivors %>%
+  select(student_id_scram,grade3) %>%
+  mutate(bin=round(grade3/5)*5) %>%
+  filter(bin <= 10) %>%
+  select(student_id_scram)
+
+wide_bot_10_in_3 <- left_join(bot_10_in_3, wide_survivors, by="student_id_scram")
+
+long_bot_10_in_3 <-
+  wide_bot_10_in_3 %>% 
+  gather(key="grade_level", value="percentile", 3:12) %>%
+  select(student_id_scram, grade_level, percentile) %>%
+  group_by(grade_level) %>%
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9)) %>% 
+  mutate(grade_level = as.numeric(substr(grade_level,6,7)))
+
+graph_long_bot_10_in_3  <-
+  long_bot_10_in_3 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") 
+  
+plot(graph_long_bot_10_in_3)
+
+```
+
+```{r}
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer(), ethnicity = col_character()))
+  df <- select(df, student_id_scram, ethnicity)
+}
+
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+ethnicity<- map_df(files, read_june_with_year)
+```
+
+```{r}
+eth_bot_10 <- left_join(wide_bot_10_in_3, ethnicity, by="student_id_scram")
+eth_top_10 <- left_join(wide_10_in_3, ethnicity, by="student_id_scram")
+
+long_eth_bot_10 <-
+  eth_bot_10 %>% 
+  gather(key="grade_level", value="percentile", 3:12) %>% 
+  select(student_id_scram, grade_level, percentile, ethnicity) %>%
+  mutate(grade_level = as.numeric(substr(grade_level,6,7))) %>%
+  filter(!(ethnicity=='.')) %>%
+  group_by(grade_level, ethnicity) %>%
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9))
+
+long_eth_bot_10 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") +
+  facet_wrap(~ethnicity)
+  
+long_eth_top_10 <-
+  eth_top_10 %>% 
+  gather(key="grade_level", value="percentile", 3:12) %>% 
+  select(student_id_scram, grade_level, percentile, ethnicity) %>%
+  mutate(grade_level = as.numeric(substr(grade_level,6,7))) %>%
+  filter(!(ethnicity=='.')) %>%
+  group_by(grade_level, ethnicity) %>%
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9))
+
+long_eth_top_10 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="red") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="red") +
+  facet_wrap(~ethnicity)
+```

@@ -1,9 +1,11 @@
 ---
-title: "Automated Guidance Counselor - School Features"
+title: "Automated Guidance Counselor - School Features for math and ela"
 author: "Rivka and Ro"
 date: "7/20/2017"
 output: html_document
 ---
+
+### Reading in files
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -17,62 +19,82 @@ files <- Sys.glob('/data/nycdoe/Math and ELA/*.csv')
 
 read_csv_with_year <- function(filename) {
   year <- as.numeric(gsub('-.*$', '', basename(filename)))
-  df <- read_csv(filename, col_types = cols(
-  .default = col_integer(),
-  sex = col_character(),
-  ethnicity = col_character(),
-  home_lang = col_character(),
-  ela_dbn = col_character(),
-  ela_thirdr = col_character(),
-  ela_form1 = col_character(),
-  ela_form2 = col_character(),
-  ela_prof_rating = col_double(),
-  math_dbn = col_character(),
-  math_thirdr = col_character(),
-  math_form1 = col_character(),
-  math_form2 = col_character(),
-  math_prof_rating = col_double(),
-  ela_disability = col_character(),
-  math_disability = col_character()
-))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_integer(),
+                                            grade_level=col_character(),
+                                            ela_raw_score = col_integer(),
+                                            math_raw_score = col_integer()))
   df$year <- year
-  df
+  df <- select(df, year, student_id_scram,
+               ela_dbn, ela_test_grade, ela_raw_score, ela_scale_score, ela_perf_level, 
+               math_dbn, math_test_grade, math_raw_score, math_scale_score, math_perf_level)
 }
 
 math_ela_all <- map_df(files, read_csv_with_year)
 
 math_ela <- math_ela_all
 
-test <- read_csv_with_year(files[1])
-
-# number of students all years
-vec <- vector("list", 11)
-
-for (i in 1:11) {
-  df <- read_csv_with_year(files[i])
-  vec[[i]] <- df %>%
-    select(student_id_scram, grade_level, ela_dbn, ela_test_grade, math_dbn, math_test_grade, year, testing_accomodations)
-}
-
-vec[[11]] <- test %>%
-    select(student_id_scram, grade, schooldbn, coursetitle, description,
-           mark, alphaequivalent, numericequivalent, year)
-
-
-colnames(vec[[11]], student_id_scram = student_id)
-
-dbn_grades <- do.call("rbind", vec)
 
 ```
 
-```{r}
+```{{r eval = FALSE, echo = FALSE}
+
+#join with june bio on student id and year and dbn
+
+
+#############
+
+#playing with formulas
+
+math_ela_data <- math_ela %>% select(student_id_scram, ela_test_grade, ela_dbn, math_dbn, math_test_grade, ela_scale_score, math_scale_score, year)
+
+bio_data <- bio_data %>% select(student_id_scram, dbn, grade_level, year) %>% mutate(grade_level = as.integer(grade_level))
+
+df <- inner_join(bio_data, math_ela_data)
+
+df2 <- df %>% filter(grade_level >=3, grade_level <= 9, 
+                   grade_level == math_test_grade, grade_level == ela_test_grade,
+                   dbn == ela_dbn,
+                   dbn == math_dbn,
+                   year >= 2006) %>%
+  group_by(dbn, grade_level, year) %>% summarise(math_students = sum(!is.na(math_scale_score)),
+                                                 math_scale_score = mean(math_scale_score, na.rm = T),
+                                                ela_students = sum(!is.na(ela_scale_score)),
+                                                ela_scale_score = mean(ela_scale_score, na.rm = T))
+  
+  
+##############
+
+math_ela_dbns <- math_ela %>%
+  select(student_id_scram, 
+         grade_level, 
+         ela_scale_score, 
+         dbn, 
+         math_scale_score, 
+         year) %>%
+  filter(!is.na(math_scale_score), 
+         !is.na(ela_scale_score)) %>%
+  group_by(ela_dbn, 
+           math_dbn, 
+           grade_level, 
+           year) %>%
+  summarise(ela_avg_scale_score = mean(ela_scale_score), 
+            ela_student_count = n(), 
+            ela_students = n_distinct(ela_student_count),
+            math_avg_scale_score = mean(math_scale_score), 
+            math_student_count = n(), 
+            math_students = n_distinct(math_student_count))
+
 
 ela_dbns <- math_ela %>% select(student_id_scram, ell, grade_level, ela_dbn, ela_perf_level, ela_scale_score, testing_accomodations, year) %>%
-  group_by(ela_dbn, grade_level) %>% filter(!is.na(ela_perf_level), !is.na(ela_scale_score)) %>%
-  summarise(ela_avg_perf_level = mean(ela_perf_level), ela_avg_scale_score = mean(ela_scale_score), ela_student_count = n(), ela_students = n_distinct(ela_student_count))
+  group_by(ela_dbn, grade_level, year) %>% 
+  filter(!is.na(ela_perf_level), !is.na(ela_scale_score)) %>%
+  summarise(ela_avg_perf_level = mean(ela_perf_level), 
+            ela_avg_scale_score = mean(ela_scale_score), 
+            ela_student_count = n(), 
+            ela_students = n_distinct(ela_student_count))
 
 #remove duplicate student count
-ela_dbns <- ela_dbns %>% select(ela_dbn, grade_level, ela_avg_perf_level, ela_avg_scale_score, ela_students)
+ela_dbns <- ela_dbns %>% select(ela_dbn, grade_level, year, ela_avg_perf_level, ela_avg_scale_score, ela_students)
 
 ela_dbns <- ela_dbns %>% filter(grade_level < 9) %>% mutate(borough = substr(ela_dbn, 3,3), district = substr(ela_dbn, 1,2))
 
@@ -81,12 +103,12 @@ ela_dbns <- ela_dbns %>% filter(grade_level < 9) %>% mutate(borough = substr(ela
 
 #grouping by school and grade level for math and take out nas. Note that if students took a test 
 math_dbns <- math_ela %>% select(student_id_scram, ell, grade_level, math_dbn, math_perf_level, math_scale_score, testing_accomodations, year) %>%
-  group_by(math_dbn, grade_level) %>% filter(!is.na(math_perf_level), !is.na(math_scale_score), !is.na(grade_level)) %>%
+  group_by(math_dbn, grade_level, year) %>% filter(!is.na(math_perf_level), !is.na(math_scale_score), !is.na(grade_level)) %>%
   summarise(math_avg_perf_level = mean(math_perf_level), math_avg_scale_score = mean(math_scale_score), math_student_count = n(), math_students = n_distinct(math_student_count))
 
 
 #throw out high school grades
-math_dbns <- math_dbns %>% select(math_dbn, grade_level, math_avg_perf_level, math_avg_scale_score, math_students)
+math_dbns <- math_dbns %>% select(math_dbn, grade_level, year, math_avg_perf_level, math_avg_scale_score, math_students)
 
 math_dbns <- math_dbns %>% filter(grade_level < 9) %>% mutate(borough = substr(math_dbn, 3,3), district = substr(math_dbn, 1,2))
 
@@ -114,7 +136,98 @@ math_count_schools<- nrow(math_dbns %>% group_by(math_dbn))
 
 #join with june bio and get dbns from public set and only use those
 
-math_dbns %>% filter(math_students == 1)
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+read_csv_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(grade_level=col_character(), grade_code=col_character(), admit_code=col_character(), adcode=col_character(),fall_days_present = col_character(), spring_days_present = col_character()))
+  df$year <- year
+  df
+}
+bios <- map_df(files, read_csv_with_year)
+
+read_ela_math_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_integer(),
+                                            grade_level=col_character(),
+                                            ela_raw_score = col_integer(),
+                                            math_raw_score = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram,
+               ela_dbn, ela_test_grade, ela_raw_score, ela_scale_score, ela_perf_level, 
+               math_dbn, math_test_grade, math_raw_score, math_scale_score, math_perf_level)
+}
+files <- Sys.glob('/data/nycdoe/Math and ELA/*.csv')
+scores <- map_df(files, read_ela_math_with_year)
+
+scores_with_schools <- bios %>%
+  select(year, student_id_scram, dbn, grade_level) %>%
+  inner_join(scores) %>%
+  mutate(grade_level = ifelse(grade_level == "0K", 0, grade_level),
+         grade_level = ifelse(grade_level == "PK", -1, grade_level),
+         grade_level = as.integer(grade_level))
+
+
+scores_with_schools <- bios %>%
+  select(year, student_id_scram, dbn, grade_level) %>%
+  inner_join(scores) %>%
+  mutate(grade_level = ifelse(grade_level == "0K", 0, grade_level),
+         grade_level = ifelse(grade_level == "PK", -1, grade_level),
+         grade_level = as.integer(grade_level))
+
+
+scores_by_school <- scores_with_schools %>%
+  filter(grade_level == ela_test_grade,
+         grade_level == math_test_grade,
+         dbn == ela_dbn,
+         dbn == math_dbn) %>%
+  select(year, dbn, grade_level, ela_scale_score, math_scale_score) %>%
+  group_by(year, dbn, grade_level) %>%
+  summarize(total = n(),
+            non_na_ela = sum(!is.na(ela_scale_score)),
+            avg_ela_scale_score = mean(ela_scale_score, na.rm = T),
+            non_na_math = sum(!is.na(math_scale_score)),
+            avg_math_scale_score = mean(math_scale_score, na.rm = T))
+scores_by_school
+
+scores_by_school <- scores_by_school %>% mutate(grade_level = as.character(grade_level))
+
+
+plot_data <- inner_join(ela_math_scores_per_school, scores_by_school, by = c("DBN" = "dbn", "Year" = "year", "Grade" = "grade_level"))
+
+plot_data %>% ggplot(aes(x=num_tested_ela, y=non_na_ela)) +
+  geom_point() +
+  geom_abline()
+
+#nonsense
+plot_data %>% ggplot(aes(x=mean_scale_score_ela, y=avg_ela_scale_score)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth()
+
+scores_by_school_fixedyr <- scores_by_school %>% ungroup() %>%
+  mutate(year = year + 1)
+
+# by year and grade
+scores_by_school_year_grade <- scores_by_school_fixedyr
+
+# by just grade and school
+scores_by_school_grade <- scores_by_school_fixedyr %>%
+  group_by(dbn, grade_level) %>% summarise(total = sum(total),
+                                           ela_student_count = sum(non_na_ela),
+                                           ela_avg_score = mean(avg_ela_scale_score),
+                                           math_student_count = sum(non_na_math),
+                                           math_avg_score = mean(avg_math_scale_score))
+
+#by school only
+scores_by_school_only <- scores_by_school_fixedyr %>%
+  group_by(dbn) %>% summarise(total = sum(total),
+                                           ela_student_count = sum(non_na_ela),
+                                           ela_avg_score = mean(avg_ela_scale_score),
+                                           math_student_count = sum(non_na_math),
+                                           math_avg_score = mean(avg_math_scale_score))
+
+save(scores_by_school_grade, file = "/data/nycdoe/clean_data/FINAL_ela_math_by_gradeANDschool_per_school.Rdata")
+save(scores_by_school_only, file = "/data/nycdoe/clean_data/FINAL_ela_math_by_ONLYschool_per_school.Rdata")
 
 
 ```

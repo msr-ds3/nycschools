@@ -34,3 +34,9 @@
 ## 2017-07-24
   * [ predicting continuation take 2](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170724_predicting_continuation_take_2.html)
 
+## 2017-07-25
+  * [ Regent Average Performance](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170725_Regent_Average_Performance.html)
+
+## 2017-07-26
+  * [ School Features WillIGetIn](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170726_School_Features_WillIGetIn.html)
+

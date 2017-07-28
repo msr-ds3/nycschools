@@ -17,21 +17,26 @@ library(readxl)
 
 
 ```
-Get demo data from file
+#Get demo data from file
 ```{r}
 #demo <- read_excel('/data/nycdoe/DemographicSnapshot201213to201617Public_FINAL1.xlsx', sheet=5)
-demographics_DOE_11_15 <- read_excel('/data/nycdoe/DemographicSnapshot201112to201516Public_FINAL.xlsx', sheet=4)
+demographics_DOE_11_12_15_16 <- read_excel('/data/nycdoe/DemographicSnapshot201112to201516Public_FINAL.xlsx', sheet=4)
 
-demographics_DOE_11_15<- demographics_DOE %>% select(DBN, `School Name`, Year, `Total Enrollment`, matches('%'), matches('#'))
+demographics_DOE_11_12_15_16 <- demographics_DOE_11_12_15_16 %>% select(DBN, `School Name`, Year, `Total Enrollment`, matches('%'), matches('#'))
 
+
+#put year in single year format as integer
+demographics_DOE_11_12_15_16 <- demographics_DOE_11_12_15_16 %>% mutate(Year = paste(substr(Year, 1,4), sep = "")) %>% mutate(Year = as.integer(Year))
+
+demographics_DOE_11_12_15_16 %>% filter(DBN == '01M015')
+
+save(demographics_DOE_11_12_15_16, file = "/data/nycdoe/clean_data/DOE_demo_per_school_per_year.Rdata")
 ```
-Get class data from file
+#Get class data from file ?????????????????????? HELP
 ```{r}
 classSize_DOE <- read_excel('/data/nycdoe/February2017_Avg_ClassSize_School.xlsx', sheet = 1, skip = 6)
 
-classSize_DOE  <- classSize_DOE %>% mutate(totalNumStudents = `Average Class Size` * `Number of Classes` )
 
-students_perDBN_perGradeLevel <- classSize_DOE %>% group_by(DBN, `Grade Level`) %>% summarise(totalStudentsGradeLevel = sum(totalNumStudents))
 
 ```
 Get ELA test data from file
@@ -101,4 +106,7 @@ colnames(ela_math_scores_per_school)[6] <- "num_tested_ela"
 colnames(ela_math_scores_per_school)[7] <- "mean_scale_score_ela"
 
 ela_math_scores_per_school
+
+save(ela_math_scores_per_school, file = "/data/nycdoe/clean_data/ela_math_scores_per_school.Rdata")
 ```
+
