@@ -156,8 +156,6 @@ plotit <- function(df, grade_from, grade_to) {
   geom_abline(linetype = "dashed")
 }
 plotit(wide_survivors, grade4, grade11)
-p + xlab('foo')
-plotit(df, y, z)
 
 ```
 LOOK AT PROGRESSION OF TOP 10 PERCENT OF 3RD GRADE
