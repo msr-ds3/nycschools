@@ -1,0 +1,44 @@
+---
+title: "20170727_GPA_Percentile_By_DBN"
+author: "David and Keri"
+date: "7/27/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(scales)
+theme_set(theme_bw())
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+load('/data/nycdoe/clean_data/student_perf_feature.Rdata')
+```
+
+Bringing in GPA
+```{r}
+stud_gpa_perf <- left_join(avg_all_percentile, gpa4, by=c("year","student_id_scram"))
+
+stud_gpa_perf <- 
+  stud_gpa_perf %>%
+  filter(!is.na(GPA))
+
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer()))
+  df$year <- year
+  df <- select(df, year, student_id_scram, dbn)
+}
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+level <- map_df(files, read_june_with_year)
+
+perf_dbn <- left_join(stud_gpa_perf,level , by = c("year","student_id_scram"))
+
+```
+
+The code didnt save. The datafram was saved, but how we got the final gpa percentile code was lost
