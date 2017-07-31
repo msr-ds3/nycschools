@@ -5,6 +5,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+theme_set(theme_bw())
 ```
 
 # Automated Guidance Counselor
@@ -329,6 +330,7 @@ bios15[is.na(bios15)] <- 'Not Applicable'
 # IN CASE OF CRASH:
 # load('/data/nycdoe/clean_data/june_bios_with_grad_and_school_data.Rdata')
 # bios15 <- june_bios_with_grad_and_school_data
+# rm(june_bios_with_grad_and_school_data)
 
 sample_size <- floor(0.80 * nrow(bios15))
 
@@ -387,7 +389,71 @@ model_5_stats <-
 ```
 
 
+###AUC and ROC for Model 5 using ROCR package
+```{r}
+auc_data <-
+  model_5_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
 
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+```{r}
+accuracy <-
+  model_5_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_5_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(did_not_cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_5_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_5_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+```{r}
+model_5_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
 ##If we can only speak to 100 students and we take the students the model is most confident will drop out, what percentage of students we take will actually drop out?
 
 ```{r}
@@ -445,32 +511,11 @@ model_5_stats %>%
   ggplot(aes(x=perc_cum_total, y=p_dropout_in_top_k)) +
   geom_line() +
   scale_x_continuous(labels=percent) +
-  scale_y_continuous(labels=percent) +
+  scale_y_continuous(labels=percent, limits=c(0,1)) +
   labs(x="Top k% Students Predicted To Drop Out", y="Percent of Students in Top k% Caught") +
   geom_hline(yintercept = baseline[1,1], linetype='dashed')
 ```
 
-
-###AUC and ROC for Model 5 using ROCR package
-```{r}
-auc_data <-
-  model_5_stats %>%
-  select(cont, did_not_cont, p_did_not_continue) %>%
-  gather('label', 'count', 1:2) %>%
-  mutate(label=ifelse(label=='cont', 0, 1)) %>%
-  mutate(actual_did_not_continue=label) %>%
-  select(actual_did_not_continue, p_did_not_continue, count)
-
-auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
-
-pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
-
-perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
-
-plot(perf_nb)
-
-performance(pred, 'auc')
-```
 
 
 ## % caught plots by grade
@@ -503,15 +548,17 @@ model_2_stats_by_grade %>%
 
 
 
-## Plots for how our model performs based on certain features
+# Plots for how our model performs based on certain features
 ```{r}
 actual_vals <-
   bios15 %>%
   group_by(grade_level, ethnicity, sex) %>%
-  summarise(avg_dropout=mean(did_not_continue))
+  summarise(actual_avg_dropout=mean(did_not_continue)) 
+
+actual_vals$grade_level <- factor(actual_vals$grade_level, levels = c('-1', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'), labels=c('-1'='Pre-K', '0'='K', '1'='1', '2'='2', '3'='3', '4'='4', '5'='5', '6'='6', '7'='7', '8'='8', '9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'))
 
 actual_vals %>%
-  ggplot(aes(x=grade_level, y=avg_dropout, color=ethnicity)) +
+  ggplot(aes(x=grade_level, y=actual_avg_dropout, color=ethnicity)) +
   geom_point() +
   facet_wrap(~ sex)
 ```
@@ -586,33 +633,50 @@ model_5_stats_on_artificial_test_with_features_2 <-
   select(-value) %>%
   gather('ethnicity', 'value', 6:11) %>%
   filter(value==1) %>%
-  select(-value)
+  select(-value) %>%
+  mutate(grade_level=substr(grade_level, 12, length(grade_level))) %>%
+  mutate(grade_level=ifelse(grade_level=='.1', '-1', grade_level)) %>%
+  mutate(ethnicity=substr(ethnicity, 10, length(ethnicity))) %>%
+  mutate(ethnicity=ifelse(ethnicity=='Native.American', 'Native American',
+                          ifelse(ethnicity=='Multi.Racial', 'Multi-Racial',
+                                 ethnicity))) %>%
+  mutate(sex=ifelse(sexM==0, 'F', 'M')) %>%
+  select(-sexM)
 ```
 
-Plot
+Plot model's predictions of dropout by grade_level
 ```{r}
 model_5_stats_on_artificial_test_with_features_3 <- model_5_stats_on_artificial_test_with_features_2
-model_5_stats_on_artificial_test_with_features_3$grade_level <- factor(model_5_stats_on_artificial_test_with_features_3$grade_level, levels = order(c('grade_level.1', 'grade_level1', 'grade_level2', 'grade_level3', 'grade_level4', 'grade_level5', 'grade_level6', 'grade_level7', 'grade_level8', 'grade_level9', 'grade_level10', 'grade_level11', 'grade_level12', 'grade_level13')))
+model_5_stats_on_artificial_test_with_features_3$grade_level <- factor(model_5_stats_on_artificial_test_with_features_3$grade_level, levels = c('-1', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'), labels=c('-1'='Pre-K', '1'='1', '2'='2', '3'='3', '4'='4', '5'='5', '6'='6', '7'='7', '8'='8', '9'='9', '10'='10', '11'='11', '12'='12'))
 
-model_5_stats_on_artificial_test_with_features_2 %>%
-  group_by(grade_level, ethnicity, sexM) %>%
-  summarise(avg_dropout=mean(p_did_not_continue)) %>%
-  ggplot(aes(x=grade_level, y=avg_dropout, color=ethnicity, group=ethnicity)) +
+model_5_stats_on_artificial_test_with_features_3 %>%
+  group_by(grade_level, ethnicity, sex) %>%
+  summarise(predicted_avg_dropout=mean(p_did_not_continue)) %>%
+  ggplot(aes(x=grade_level, y=predicted_avg_dropout, color=ethnicity, group=ethnicity)) +
   geom_line() +
-  scale_x_discrete(limits=c('grade_level.1', 'grade_level1', 'grade_level2', 'grade_level3', 'grade_level4', 'grade_level5', 'grade_level6', 'grade_level7', 'grade_level8', 'grade_level9', 'grade_level10', 'grade_level11', 'grade_level12', 'grade_level13'), labels=c('grade_level.1'='Pre-K', 'grade_level1'='1', 'grade_level2'='2', 'grade_level3'='3', 'grade_level4'='4', 'grade_level5'='5', 'grade_level6'='6', 'grade_level7'='7', 'grade_level8'='8', 'grade_level9'='9', 'grade_level10'='10', 'grade_level11'='11', 'grade_level12'='12', 'grade_level13'='Graduated')) +
- facet_wrap(~ as.factor(sexM)) 
+  facet_wrap(~ sex)
 ```
 
+Now overlay actual average dropout by grade_level to plot of model's predictions
+```{r}
+model_5_stats_on_artificial_test_with_features_4 <-
+  model_5_stats_on_artificial_test_with_features_3 %>%
+  left_join(actual_vals, by=c('grade_level', 'ethnicity', 'sex'))
 
-## To Do:
-1. How to calculate AUC - tomorrow morning ✓
-2. Split up models 3 + 4 stats by demographics ✓
-3. Attendance -> factor ✓
-4. Feature interactions? Francois
-5. Cross validation and regularization? ?
+model_5_stats_on_artificial_test_with_features_4$grade_level <- factor(model_5_stats_on_artificial_test_with_features_4$grade_level, levels=c('Pre-K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'))
 
-6. Look at predicted values/coefs -> ask Jake how to make plots, etc.
-7. Split % caught plot by grade
-8. Put actual values on plot of predicted avg_dropout by grade_level
-9. Deal with supression of grade_level0
+model_5_stats_on_artificial_test_with_features_4 %>%
+  group_by(grade_level, ethnicity, sex) %>%
+  summarise(predicted_avg_dropout=mean(p_did_not_continue), actual_avg_dropout=mean(actual_avg_dropout)) %>%
+  ggplot(aes(x=grade_level, y=predicted_avg_dropout, color=ethnicity, group=ethnicity)) +
+  geom_line() +
+  geom_point(aes(x=grade_level, y=actual_avg_dropout)) +
+  facet_wrap(~ sex)
+
+```
+Note: Our model absorbs grade_level0 into the Intercept, so our model's predictions isn't showing for K... Can I just manually add it in to the artificial df?
+
+
+
+
 

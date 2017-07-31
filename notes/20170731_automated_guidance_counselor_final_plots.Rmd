@@ -1,0 +1,356 @@
+---
+title: "Final Plots"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(boot)
+library(glmnet)
+library(tidyverse)
+library(scales)
+library(ROCR)
+library(directlabels)
+
+theme_set(theme_bw())
+```
+
+## Student Drop Outs Throughout High School
+```{r}
+load('/data/nycdoe/clean_data/hs_student_dropouts_data.Rdata')
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of")
+```
+
+## Student Drop Outs Throughout High School - Faceted by Ethnicity
+```{r}
+load('/data/nycdoe/clean_data/hs_student_dropouts_eth_data.Rdata')
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~ethnicity)
+```
+
+## Student Drop Outs Throughout High School - Faceted by Gender
+```{r}
+load('/data/nycdoe/clean_data/hs_student_dropouts_gender_data.Rdata')
+
+final_df_2 %>%
+  filter(year<=2012) %>%
+  ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  facet_wrap(~sex)
+```
+
+## Average Grade-Wise Continuation Rates Across 2005-2014
+```{r}
+load('/data/nycdoe/clean_data/average_gradewise_continuation_rates.Rdata')
+
+continuation_rates %>%
+  group_by(grade_level) %>%
+  summarise(avg_continuation=mean(continuation_rate), se=sd(continuation_rate)/n()) %>%
+  ggplot(aes(x=grade_level, y=avg_continuation)) +
+  scale_x_continuous(breaks=seq(-1, 12, 1), labels=c('-1'='Pre-K', '0'='K', '1'='1', '2'='2', '3'='3', '4'='4', '5'='5', '6'='6', '7'='7', '8'='8', '9'='9', '10'='10', '11'='11', '12'='12'), expand=c(0, 0.75)) +
+  scale_y_continuous(labels = percent) +
+  geom_point() +
+  geom_line() +
+  labs(x="Grade Level", y="Average Percent Continuation", title="Year-to-Year Continuation") +
+  geom_errorbar(aes(ymin = avg_continuation-se, ymax = avg_continuation+se))
+```
+
+## Average Grade-Wise Continuation Rates Split by Year
+```{r}
+continuation_rates %>%
+  filter(year!=2015) %>%
+  mutate(grade_level=as.character(grade_level)) %>%
+  mutate(grade_level=ifelse(grade_level=='-1','Pre-K',
+                            ifelse(grade_level=='0', 'K',
+                                   grade_level))) %>%
+  ggplot(aes(x=year, y=continuation_rate, color=factor(grade_level, levels=c('Pre-K', 'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12')))) +
+  geom_point() +
+  geom_line() +
+  labs(x="Academic Year", y="Percent Continuation", title="Trends in Continuation Rates by Grade Level", color="Grade Level") +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(2005, 2014, 1), expand=c(0, 1)) +
+  geom_dl(aes(label = as.factor(grade_level)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.75)) 
+```
+
+# Model: did_not_continue ~ grade_level + sex + ethnicity + ell + poverty + perc_attendance + quantiled_GPA + school_avg_attendance + school_avg_grad + school_avg_English + school_avg_History + school_avg_Language + school_avg_Math + school_avg_Science
+
+## Coefficients
+> coef(model_5)
+107 x 1 sparse Matrix of class "dgCMatrix"
+                                              s0
+(Intercept)                         -0.110625063
+(Intercept)                          .          
+grade_level1                         0.418244557
+grade_level-1                       -0.074831362
+grade_level10                        2.656616302
+grade_level11                        1.874840792
+grade_level12                        1.160446307
+grade_level2                         0.319546452
+grade_level3                         0.139231775
+grade_level4                        -0.047714778
+grade_level5                         0.220681755
+grade_level6                         0.308763573
+grade_level7                         0.189668389
+grade_level8                         0.618494254
+grade_level9                         2.100186840
+sexM                                 0.183916486
+ethnicityAsian                      -0.273433214
+ethnicityBlack                       0.060348604
+ethnicityHispanic                   -0.104540124
+ethnicityMulti-Racial                0.156259207
+ethnicityNative American            -0.016677044
+ethnicityWhite                      -0.148575450
+ell                                  0.362096565
+poverty                             -0.177393737
+perc_attendance10                   -0.321894580
+perc_attendance100                  -3.957311098
+perc_attendance20                   -0.522810358
+perc_attendance30                   -0.792461426
+perc_attendance40                   -1.102650795
+perc_attendance50                   -1.436796287
+perc_attendance60                   -1.835128123
+perc_attendance70                   -2.303149960
+perc_attendance80                   -2.828415891
+perc_attendance90                   -3.406070502
+quantiled_GPA10                      0.084605308
+quantiled_GPA2                      -0.293418907
+quantiled_GPA3                      -0.333660314
+quantiled_GPA4                      -0.345121123
+quantiled_GPA5                      -0.301056779
+quantiled_GPA6                      -0.311366801
+quantiled_GPA7                      -0.211128917
+quantiled_GPA8                      -0.160189884
+quantiled_GPA9                      -0.035671002
+quantiled_GPAMissing                 0.205950212
+school_avg_attendance10             -0.191433759
+school_avg_attendance100             0.162172608
+school_avg_attendance20             -0.883179829
+school_avg_attendance30              0.300304752
+school_avg_attendance40              0.122643347
+school_avg_attendance50              0.463188626
+school_avg_attendance60              0.259482354
+school_avg_attendance70             -0.034656320
+school_avg_attendance80              0.014018812
+school_avg_attendance90             -0.001099207
+school_avg_attendanceNot Applicable  0.272905853
+school_avg_grad10                   -0.720056084
+school_avg_grad100                  -3.205442931
+school_avg_grad20                   -0.817164379
+school_avg_grad30                   -0.663692559
+school_avg_grad40                   -1.080333303
+school_avg_grad50                   -1.285676932
+school_avg_grad60                   -1.665819093
+school_avg_grad70                   -1.807981993
+school_avg_grad80                   -2.002536153
+school_avg_grad90                   -2.504625701
+school_avg_gradNot Applicable       -0.617160124
+school_avg_English20                 0.440004006
+school_avg_English30                 0.321231745
+school_avg_English40                 0.066901780
+school_avg_English50                 0.438120672
+school_avg_English60                 0.556773788
+school_avg_English70                 0.636096990
+school_avg_English80                 0.451221722
+school_avg_English90                 0.197881136
+school_avg_EnglishMissing            0.189212645
+school_avg_EnglishNot Applicable     0.243227114
+school_avg_History40                 0.157669797
+school_avg_History50                 0.069993443
+school_avg_History60                 0.008650314
+school_avg_History70                 0.137211464
+school_avg_History80                -0.013869884
+school_avg_History90                -0.011203772
+school_avg_HistoryMissing           -0.070460997
+school_avg_HistoryNot Applicable     0.003919970
+school_avg_Language100               0.157527439
+school_avg_Language30                0.035323122
+school_avg_Language60                0.983180750
+school_avg_Language70               -0.112429084
+school_avg_Language80                0.035415857
+school_avg_Language90                0.155547613
+school_avg_LanguageMissing           0.195185103
+school_avg_LanguageNot Applicable    0.141311968
+school_avg_Math50                    0.662214766
+school_avg_Math60                    0.706552063
+school_avg_Math70                    0.816062328
+school_avg_Math80                    0.875305681
+school_avg_Math90                    0.765416242
+school_avg_MathMissing               0.830381998
+school_avg_MathNot Applicable        0.782409904
+school_avg_Science40                 0.521784959
+school_avg_Science50                 0.586960045
+school_avg_Science60                 0.488471262
+school_avg_Science70                 0.383724621
+school_avg_Science80                 0.265078384
+school_avg_Science90                 0.211097957
+school_avg_ScienceMissing            0.476142627
+school_avg_ScienceNot Applicable     0.397416778
+
+## Model Stats
+
+Accuracy
+```{r}
+load('/data/nycdoe/clean_data/model_5_stats.Rdata')
+
+accuracy <-
+  model_5_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+Precision
+```{r}
+precision <-
+  model_5_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(did_not_cont)/sum(total))
+
+precision
+```
+
+True Positive Rate
+```{r}
+tpr <-
+  model_5_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+False Positive Rate
+```{r}
+fpr <-
+  model_5_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_5_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+## Calibration Plot
+```{r}
+model_5_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+## What Percent of Dropouts Are We Catching?
+```{r}
+b <- data.frame(c(1,1))
+b[1,1] <-
+  model_5_stats %>%
+  summarise(sum(did_not_cont)/sum(total))
+
+model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), perc_cum_total=cum_total/sum(total), cum_did_not_cont=cumsum(did_not_cont), perc_cum_did_not_cont=cum_did_not_cont/sum(did_not_cont)) %>%
+  ggplot(aes(x=perc_cum_total, y=perc_cum_did_not_cont)) +
+  geom_line() +
+  scale_x_continuous(labels=percent) +
+  scale_y_continuous(labels=percent) +
+  labs(x="Percent of Students Predicted To Drop Out", y="Percent of Students Caught (Correctly Identified As Dropping Out)") +
+  geom_abline(linetype='dashed', color='red') +
+  geom_abline(linetype='dashed', slope=(1/b[1,1]), intercept=0, color='blue')
+```
+
+## How Many Students We Intervened With Weren't Actually Going to Drop Out? 'Top K Curve'
+```{r}
+baseline <-
+  model_5_stats %>%
+  summarise(base=sum(did_not_cont)/sum(total))
+
+model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), perc_cum_total=cum_total/sum(total), cum_did_not_cont=cumsum(did_not_cont), p_dropout_in_top_k=cum_did_not_cont/cum_total) %>%
+  ggplot(aes(x=perc_cum_total, y=p_dropout_in_top_k)) +
+  geom_line() +
+  scale_x_continuous(labels=percent) +
+  scale_y_continuous(labels=percent, limits=c(0,1)) +
+  labs(x="Top k% Students Predicted To Drop Out", y="Percent of Students in Top k% Caught") +
+  geom_hline(yintercept = baseline[1,1], linetype='dashed')
+```
+
+## Our Model's Predictions for a 'Typical' Student - Faceted by Ethnicity and Gender
+
+Typical Student:
+ell=0,
+poverty=1,
+perc_attendance=100,
+quantiled_GPA='Missing',
+school_avg_attendance=90,
+school_avg_grad=60,
+school_avg_English=60,
+school_avg_History=60,
+school_avg_Language=90,
+school_avg_Math=60,
+school_avg_Science=60
+
+```{r}
+load('/data/nycdoe/clean_data/model_5_stats_eth_gender.Rdata')
+
+model_5_stats_on_artificial_test_with_features_4 %>%
+  group_by(grade_level, ethnicity, sex) %>%
+  summarise(predicted_avg_dropout=mean(p_did_not_continue), actual_avg_dropout=mean(actual_avg_dropout)) %>%
+  ggplot(aes(x=grade_level, y=predicted_avg_dropout, color=ethnicity, group=ethnicity)) +
+  geom_line() +
+  geom_point(aes(x=grade_level, y=actual_avg_dropout)) +
+  facet_wrap(~ sex)
+```
