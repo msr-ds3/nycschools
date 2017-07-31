@@ -53,8 +53,7 @@ colnames(student_unique_performance_wide) <-
     "grade7","grade8","grade9","grade10","grade11","grade12")
 ```
 
-Plotting the correlation coefficients
-Only works with True Survivors
+Correlation
 
 ```{r}
 load('/data/nycdoe/clean_data/true_surv_corr.Rdata')
@@ -98,7 +97,7 @@ fourvseleven <-r
 
 p <- plotit(student_unique_performance_wide, grade4, grade12)
 p + xlab("4th Grade Performance") + ylab("12th Grade Performance") + ggtitle("Performance in 4th Grade against Performance in 12th Grade")
-fourvseleven <- p
+fourvstwelve<- p
 
 ```
 
@@ -221,11 +220,6 @@ sample_eth_bot_10_id <-
 
 sample_eth_bot_10 <- left_join(sample_eth_bot_10_id, eth_bot_10, by="student_id_scram")
 
-sample_eth_bot_10 %>% group_by(student_id_scram) %>%
-  unique() %>%
-  group_by(ethnicity) %>%
-  count() %>%  View
-
 long_eth_bot_10 <-
   sample_eth_bot_10 %>% 
   gather(key="grade_level", value="percentile", 2:11) %>%
@@ -233,11 +227,12 @@ long_eth_bot_10 <-
   filter(!(ethnicity=='.')) %>% 
   select(student_id_scram, grade_level, percentile, ethnicity) %>%
   mutate(grade_level = as.numeric(substr(grade_level,6,7))) %>%
-  group_by(grade_level, ethnicity) %>%
+  group_by(grade_level, ethnicity) %>% unique() %>%
   summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
             low=quantile(percentile,0.10), high=quantile(percentile,0.9),count=n())
 
-long_eth_bot_10 %>%
+eth_bot_10_prog <-
+  long_eth_bot_10 %>%
   ggplot(aes(x = grade_level, y= mid)) +
   geom_line()+
   geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="red") +
@@ -245,8 +240,9 @@ long_eth_bot_10 %>%
   geom_point(aes(size=count))+
   facet_wrap(~ethnicity) +
   labs(title = "Progression of the Bottom 10 percent of 3rd graders until 12th grade\nfaceted by ethnicity", 
-       x = "Grade Level", y = "Student Percentile")
- 
+       x = "Grade Level", y = "Student Percentile", size = "Number of Students")
+
+plot(eth_bot_10_prog) 
 ```
 Top 10 Percentile Progression 
 Sampled equally
@@ -293,23 +289,19 @@ sample_eth_top_10_id <-
 
 sample_eth_top_10 <- left_join(sample_eth_top_10_id, eth_top_10, by="student_id_scram")
 
-sample_eth_top_10 %>% group_by(student_id_scram) %>%
-  unique() %>%
-  group_by(ethnicity) %>%
-  count() %>%  View
-
 long_eth_top_10 <-
   sample_eth_top_10 %>% 
   gather(key="grade_level", value="percentile", 2:11) %>%
   filter(!(is.na(percentile)))%>%
   filter(!(ethnicity=='.')) %>% 
-  select(student_id_scram, grade_level, percentile, ethnicity) %>%
+  select(student_id_scram, grade_level, percentile, ethnicity) %>% 
   mutate(grade_level = as.numeric(substr(grade_level,6,7))) %>%
-  group_by(grade_level, ethnicity) %>%
+  group_by(grade_level, ethnicity) %>% unique() %>% 
   summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
-            low=quantile(percentile,0.10), high=quantile(percentile,0.9),count=n())
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9),count=n()) 
 
-long_eth_top_10 %>%
+eth_top_10_prog <-
+  long_eth_top_10 %>% 
   ggplot(aes(x = grade_level, y= mid)) +
   geom_line()+
   geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
@@ -317,6 +309,13 @@ long_eth_top_10 %>%
   geom_point(aes(size=count))+
   facet_wrap(~ethnicity) +
   labs(title = "Progression of the Top 10 percent of 3rd graders until 12th grade\nfaceted by ethnicity", 
-       x = "Grade Level", y = "Student Percentile")
- 
+       x = "Grade Level", y = "Student Percentile", size = "Number of Students")
+plot(eth_top_10_prog)
+```
+Save all relevant plots and figures
+```{r}
+save(performance_correlations_of_true_survivors,
+     fourvsfive, fourvseight, fourvseleven, fourvstwelve,
+     bot_10_from_3rd, top_10_from_3rd,
+     eth_top_10_prog, eth_bot_10_prog, file='~/nycschools/figures/performance_and_survivals.Rdata')
 ```
