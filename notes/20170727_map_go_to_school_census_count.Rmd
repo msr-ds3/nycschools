@@ -6,18 +6,20 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 8)
 
 library(dplyr)
 library(readr)
 library(sp)
 library(leaflet)
-
+library(httr)
+library(rgdal)
 ```
 
 
 ```{r}
-#load("/data/nycdoe/clean_data/percent_grad_per_school.Rdata")
+
+load("/data/nycdoe/school_info_with_lat_long.Rdata")
 
 #loda bio data 
 load("/data/nycdoe/clean_data/common_data_frames/bio_data.Rdata")
@@ -31,29 +33,52 @@ all_bio_data <- bio_data
 zone_data <- zoneData
 ```
 
+#join boro zips to county (another way to detirming boro)
+```{r}
+county <- c("005", "047", "061", "081", "085")
+boro <- c("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten")
 
+county_bor <- data.frame(county, boro)
+
+boro_zip_join <- full_join(boro_zip, county_bor, by = c("borough" = "boro"))
+
+save(boro_zip_join, file = "/data/nycdoe/clean_data/boro_zip_join.Rdata")
+
+```
+
+load and select from zone data
 ```{r}
 
 zoneData <- zone_data %>% select(c(1,2,3,4,5,7,8))
 
+nrow(zoneData) #9502347 rows in zoneData
 
+#zoneData %>% group_by(year)  %>% filter(is.na(res_zip_cde)) #23891 rowa
 ```
-Join on bio on dbn and year
+
+#Join on bio on dbn and year
 ```{r}
 
 bio_data <- bio_data %>% select(student_id_scram, year, dbn, grade_level)
 
 join_zone_bio <- inner_join(bio_data, zoneData, by = c("student_id_scram", "year"))
 
+join_zone_bio %>% filter(is.na(res_zip_cde) & is.na(census_tract))#21,780
+
+nrow(join_zone_bio) # 9465495  rows
+
+#  with_grade <- all_bios %>% select(student_id_scram, year, dbn, grade_level)
+#  join_zone_bio_with_grade <- inner_join(with_grade, zoneData, by = c("student_id_scram", "year"))
+# save(join_zone_bio_with_grade, file = "/data/nycdoe/clean_data/join_zone_bio_grade.Rdata")
 
 ```
 
-
+#clean data
 ```{r}
 student_go_to_schools <- join_zone_bio %>% select(c(1,2,3,4,5,9))
 student_go_to_schools <- student_go_to_schools %>% mutate(res_zip_cde = as.integer(res_zip_cde))
 
-
+#join to get county
 student_go_to_schools_join_county <- full_join(student_go_to_schools, boro_zip_join, by = c("res_zip_cde" = "zipcode"))
 
 student_go_to_schools_join_county <- student_go_to_schools_join_county %>% group_by(year, dbn, census_tract, county) %>% summarise(numStudents = n())
@@ -66,75 +91,78 @@ nrow(na_check)/nrow(student_go_to_schools_join_county)
 
 student_go_to_schools_join_county  <- student_go_to_schools_join_county %>% filter(!is.na(census_tract) | !is.na(county))
 
+
 ```
 
-
+#pad census tract with 6 zeros and put back to char ---same type as shapefile
 ```{r}
+
+#coerce to int
 student_go_to_schools_join_county  <- student_go_to_schools_join_county %>% ungroup()  %>% mutate(census_tract = as.integer(census_tract))
 
+#pad with 0's
 student_go_to_schools_join_county  <- student_go_to_schools_join_county  %>% mutate(census_tract =  sprintf("%06d", census_tract))
 
+#put back to char
 student_go_to_schools_join_county<- student_go_to_schools_join_county  %>% mutate(census_tract = as.character(census_tract))
 
 
-#Check what was dropped ???? Are zips listed in every year????
+#Check what was dropped ???? Are zips listed in every year???? yes there are zips every year, a negligible amount were dropped (they had no data at all)
 ```
 
 
+#join with lat long on dbn
 ```{r}
-##############################################################################################
+student_go_to_schools_join_county_join_latLong <- inner_join(student_go_to_schools_join_county, lat_long, by = "dbn")
 
-df <- student_go_to_schools %>% group_by(year, dbn, census_tract) %>% summarise(numStudents = n())
-
-#get na's
-kx <- df %>% filter(is.na(census_tract))
-
-
-#percent of students without census tract (1.1%)
-sum(kx$numStudents)/sum(df$numStudents)
-
-
-#drop the na census tracts
-student_go_to_schools <-  df%>% filter(!is.na(census_tract))
-
-test <- student_go_to_schools %>% mutate(census_tract = as.integer(census_tract))
-test <- test %>% mutate(census_tract =  sprintf("%06d", census_tract))
-
-test <- test %>% mutate(census_tract = as.character(census_tract))
-
-county <- c("005", "047", "061", "081", "085")
-boro <- c("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten")
-
-county_bor <- data.frame(county, boro)
-
-
-#boro_zip %>% group_by(zipcode, borough) %>% summarise(count = n())
-#boro_zip %>% group_by(borough) %>% summarise()
-
-boro_zip_join <- full_join(boro_zip, county_bor, by = c("borough" = "boro"))
-
+student_go_to_schools_join_county_join_latLong_join_name <- inner_join(student_go_to_schools_join_county_join_latLong, school_info, by = c("dbn" = "ATS System Code"))
 ```
 
-Map the dbn
+
+#Map the dbn
 ```{r}
 #load tract data
 load('/data/nycdoe/nyc_tracts.Rdata')
 
-sample_map_data <- student_go_to_schools_join_county %>% filter(dbn =='02M475' & year ==2009)
 
+#filter data to one year, one dbn
+sample_map_data <- student_go_to_schools_join_county_join_latLong_join_name %>% filter(dbn =='02M475' & year ==2009)
+
+#add the data to the sapcial file 
 tracts_map <- merge(nyc_tracts, sample_map_data, by.x = c("TRACTCE","COUNTYFP"), by.y =c("census_tract", "county"))
 
-#plot map
+#design color palette
 pal3 <- colorNumeric(palette = "Reds",
                     domain = range(tracts_map@data$numStudents, na.rm=T), na.color = "#cccccc")
 
+
+#nice school icon
+school_icon <- makeIcon(
+ iconUrl = "http://www.freeiconspng.com/uploads/high-school-icon-png-8.png",
+ iconWidth = 38, iconHeight = 38)
+
+
+#############################################
+#get schools zones shapefile (THIS IS ELEMENTARY SCHOOLS!!!!)
+r<- GET("https://data.cityofnewyork.us/api/geospatial/cq6p-iwiy?method=export&format=GeoJSON")
+dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
+###############################################
+
+
+#use leaflet to map data
 leaflet(tracts_map) %>%
   #addTiles() %>% 
+   addPolygons(data = dbns, color = "black") %>%
   addPolygons(weight = .5, fillColor = ~pal3(numStudents), popup = ~paste("Number of Students:", numStudents, "\nCensus Tract:", TRACTCE), fillOpacity = .7) %>% 
   addLegend(pal = pal3, values = ~numStudents, opacity = 1) %>%
+   addMarkers(~lon, ~lat, icon = school_icon) %>%
   addProviderTiles("CartoDB.Positron") %>%
   setView(-73.98, 40.75, zoom = 13)
 
+```
+
+Make a function to do this for you
+```{r}
 
 #function take dbn and make map
 getMapFromDbn <- function(mydbn, myyear){
@@ -153,25 +181,15 @@ leaflet(tracts_map) %>%
 }
 
 
-getMapFromDbn("10X368", 2008)
+getMapFromDbn("10X368", 2010)
 
 ```
 
 ```{r}
-
-sanity <- join_zone_bio %>% select(c(1,2,3,4,9))
-
-sanity %>% filter(dbn =='01M015' & year ==2007 & census_tract == "2601")
-
-
+save(student_go_to_schools_join_county, file = "/data/nycdoe/clean_data/students_go_to_school_join_county.Rdata")
 ```
 
-```{r}
 
-r<- GET("https://data.cityofnewyork.us/api/geospatial/cq6p-iwiy?method=export&format=GeoJSON")
-dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
-
-```
 
 
 
