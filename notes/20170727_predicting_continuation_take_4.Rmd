@@ -1,0 +1,948 @@
+---
+title: '20170727'
+output: html_document
+---
+## TO DO
+new features:
+1. school and student features
+willigetin, avg_all_long_performance
+
+1a. add in new school demographic features
+2. create percentiles for school - how to do this
+(elem/ms - math + ela, hs - regents)
+3. grade*student_perf + grade*school_perf + student_perf*school_perf + demographics (first do it straight)
+4. switch to glm?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(boot)
+library(glmnet)
+library(tidyverse)
+library(scales)
+library(ROCR)
+
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+load('/data/nycdoe/clean_data/will_i_get_in_school_features.Rdata')
+```
+
+## Francois - create model_6 - model_5 plus more school features
+
+## Create new feature - school_percentile
+
+3 cases per school:
+1. elem - ela only
+2. ms/hs - regents only
+3. k-12 - ela + regents
+```{r}
+school_percentile_elem <-
+  will_i_get_in_school_features %>%
+  filter((!is.na(ela_avg_score)|!is.na(math_avg_score)), is.na(English)) %>%
+  arrange(desc(ela_avg_score, math_avg_score)) %>%
+  mutate(elem_percentile=row_number()/nrow(.), elem=1) %>%
+  select(dbn, elem_percentile, elem)
+
+school_percentile_hs <-
+  will_i_get_in_school_features %>%
+  filter(is.na(ela_avg_score), !is.na(English)) %>%
+  arrange(desc(English, Math, History, Science)) %>%
+  mutate(hs_percentile=row_number()/nrow(.), hs=1) %>%
+  select(dbn, hs_percentile, hs)
+
+school_percentile_k_12 <-
+  will_i_get_in_school_features %>%
+  filter(!is.na(ela_avg_score), !is.na(English)) %>%
+  arrange(desc(ela_avg_score, math_avg_score, English, Math, History, Science)) %>%
+  mutate(k_12_percentile=row_number()/nrow(.), k_12=1) %>%
+  select(dbn, k_12_percentile, k_12)
+  
+school_percentile_df <-
+  will_i_get_in_school_features %>%
+  left_join(school_percentile_elem, by='dbn') %>%
+  left_join(school_percentile_hs, by='dbn') %>%
+  left_join(school_percentile_k_12, by='dbn') %>%
+  mutate(school_percentile=ifelse(!is.na(elem_percentile), elem_percentile,
+                                  ifelse(!is.na(hs_percentile), hs_percentile,
+                                         ifelse(!is.na(k_12_percentile), k_12_percentile,
+                                                NA))))
+school_percentile_df %>%
+  filter((is.na(ela_avg_score) & !is.na(math_avg_score)) | (!is.na(ela_avg_score) & is.na(math_avg_score))) %>%
+  nrow()
+
+school_percentile_df %>%
+  filter(!(is.na(English) & is.na(Math) & is.na(History) & is.na(Science)) & (is.na(English) | is.na(Math) | is.na(History) | is.na(Science))) %>%
+  nrow()
+
+school_percentile_df %>% 
+  filter(is.na(school_percentile)) %>%
+  nrow()
+
+school_percentile_df %>% 
+  filter(is.na(school_percentile)) %>%
+  select(ela_avg_score, math_avg_score, English, Math, History, Science) %>%
+  summary()
+```
+
+Spot checking schools that have no ela/math/regents scores
+```{r}
+# read_ela_math_with_year <- function(filename) {
+#   year <- as.numeric(gsub('-.*$', '', basename(filename)))
+#   df <- read_csv(filename, col_types = cols(student_id_scram = col_integer(),
+#                                             grade_level=col_character(),
+#                                             ela_raw_score = col_integer(),
+#                                             math_raw_score = col_integer()))
+#   df$year <- year
+#   df <- select(df, year, student_id_scram,
+#                ela_dbn, ela_test_grade, ela_raw_score, ela_scale_score, ela_perf_level, 
+#                math_dbn, math_test_grade, math_raw_score, math_scale_score, math_perf_level)
+# }
+# 
+# files <- Sys.glob('/data/nycdoe/Math and ELA/*.csv')
+# scores <- map_df(files, read_ela_math_with_year)
+# 
+# scores %>%
+#   filter(math_dbn=='01M700')
+```
+
+
+## Next model!
+```{r}
+load('/data/nycdoe/clean_data/june_bios_tidy.Rdata')
+
+student_bios <- bios8
+rm(bios8)
+
+avg_all_percentile <- 
+  avg_all_percentile %>%
+  ungroup() %>%
+  mutate(grade_level=as.character(grade_level),
+         year=as.character(year))
+
+student_bios_with_student_perf <-
+  student_bios %>%
+  mutate(student_id_scram=as.character(student_id_scram)) %>%
+  left_join(avg_all_percentile, by=c('student_id_scram', 'year', 'grade_level'))
+
+student_bios_with_student_perf_and_school_feat <-
+  student_bios_with_student_perf %>%
+  left_join(school_percentile_df, by='dbn') %>%
+  filter(!is.na(school_percentile))
+
+### DROPPING 35% OF DATA #####
+
+student_bios_with_student_perf_and_school_feat_2 <-
+  student_bios_with_student_perf_and_school_feat %>%
+  filter(!is.na(performance)) %>%
+  mutate(perc_attendance=round(perc_attendance*100/10)*10,
+         performance=round(performance*100/10)*10,
+         school_percentile=round(school_percentile*100/10)*10,
+         avgAtt=round(avgAtt*100/10)*10)
+
+model_13_data <-
+  student_bios_with_student_perf_and_school_feat_2 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, poverty, perc_attendance, performance, avgAtt, school_percentile)
+
+sample_size <- floor(0.80 * nrow(model_13_data))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(model_13_data)), size=sample_size)
+
+train <- model_13_data[train_ind, ]
+test <- model_13_data[-train_ind, ]
+
+train_data <-
+  train %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+model_13 <- glm(cbind(train_data$yes, train_data$no) ~ grade_level + sex + ethnicity + poverty + perc_attendance + performance + avgAtt + school_percentile, family='binomial', data=train_data)
+```
+
+Evaluating model_13
+```{r}
+test_data <-
+  test %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+
+df <- data.frame(actual = cbind(test_data$yes, test_data$no),
+                 log_odds = predict(model_13, test_data)) %>%
+  mutate(pred = ifelse(log_odds > 0, 1, 0))
+
+head(df)
+summary(df)
+```
+
+```{r}
+model_13_stats <-
+  df %>%
+  mutate(total=actual.1+actual.2, num_correct=actual.1*(pred==1) + actual.2*(pred==0)) %>%
+  mutate(yes=actual.1, no=actual.2) %>%
+  select(-actual.1, actual.2)
+  
+accuracy <-
+  model_13_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(no)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_13_stats %>%
+  filter(pred==1) %>%
+  summarise(prec=sum(yes)/sum(total))
+
+precision
+```
+
+
+```{r}
+tpr <-
+  model_13_stats %>%
+  summarise(tpr=sum(yes*(pred==1))/sum(yes))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_13_stats %>%
+  summarise(fpr=sum(no*(pred==1))/sum(no))
+
+fpr
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_13_stats %>%
+  select(no, yes, pred) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_yes=label) %>%
+  select(actual_yes, pred, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$pred, auc_data$actual_yes)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+## Model 14
+```{r}
+X_train <- model.matrix(~ grade_level + sex + ethnicity + poverty + perc_attendance + performance + avgAtt + school_percentile, data=train_data)
+y_train <- cbind(train_data$no, train_data$yes)
+
+model_14 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+
+```{r}
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + poverty + perc_attendance + performance + avgAtt + school_percentile, data=test_data)
+
+y_test <-
+  cbind(test_data$no, test_data$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+```
+
+```{r}
+predictions_model_14 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_14, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_14)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_14_stats <-
+  predictions_model_14 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+```
+
+```{r}
+accuracy <-
+  model_14_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_14_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_14_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_14_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_14_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_14_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+## Model 15
+```{r}
+model_15_data <-
+  student_bios_with_student_perf_and_school_feat_2 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, ell, swd, poverty, perc_attendance, performance, avgAtt, school_percentile)
+
+sample_size <- floor(0.80 * nrow(model_15_data))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(model_15_data)), size=sample_size)
+
+train <- model_15_data[train_ind, ]
+test <- model_15_data[-train_ind, ]
+
+train_data <-
+  train %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+train_data2 <-
+  train_data %>%
+  na.omit()
+```
+
+```{r}
+X_train <- model.matrix(~ grade_level + sex + ethnicity + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=train_data2)
+y_train <- cbind(train_data2$no, train_data2$yes)
+
+model_15 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+
+```{r}
+test_data <-
+  test %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=test_data)
+
+y_test <-
+  cbind(test_data$no, test_data$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+```
+
+```{r}
+predictions_model_15 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_15, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_15)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_15_stats <-
+  predictions_model_15 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+```
+
+```{r}
+accuracy <-
+  model_15_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_15_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_15_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_15_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_15_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_15_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+
+## Model 16
+```{r}
+model_16_data <-
+  student_bios_with_student_perf_and_school_feat_2 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, pob_code, ell, swd, poverty, perc_attendance, performance, avgAtt, school_percentile)
+
+sample_size <- floor(0.80 * nrow(model_16_data))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(model_16_data)), size=sample_size)
+
+train <- model_16_data[train_ind, ]
+test <- model_16_data[-train_ind, ]
+
+train_data <-
+  train %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+train_data2 <-
+  train_data %>%
+  na.omit()
+```
+
+```{r}
+X_train <- model.matrix(~ grade_level + sex + ethnicity + pob_code + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=train_data2)
+y_train <- cbind(train_data2$no, train_data2$yes)
+
+model_16 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+
+```{r}
+test_data <-
+  test %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + pob_code + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=test_data)
+
+y_test <-
+  cbind(test_data$no, test_data$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+```
+
+```{r}
+predictions_model_16 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_16, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_16)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_16_stats <-
+  predictions_model_16 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+```
+
+```{r}
+accuracy <-
+  model_16_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_16_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_16_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_16_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_16_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_16_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+
+## Model 17
+```{r}
+model_17_data <-
+  student_bios_with_student_perf_and_school_feat_2 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, home_lang, ell, swd, poverty, perc_attendance, performance, avgAtt, school_percentile)
+
+sample_size <- floor(0.80 * nrow(model_17_data))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(model_17_data)), size=sample_size)
+
+train <- model_17_data[train_ind, ]
+test <- model_17_data[-train_ind, ]
+
+train_data <-
+  train %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+train_data2 <-
+  train_data %>%
+  na.omit()
+```
+
+```{r}
+X_train <- model.matrix(~ grade_level + sex + ethnicity + home_lang + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=train_data2)
+y_train <- cbind(train_data2$no, train_data2$yes)
+
+model_17 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+
+```{r}
+test_data <-
+  test %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + home_lang + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=test_data)
+
+y_test <-
+  cbind(test_data$no, test_data$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+```
+
+```{r}
+predictions_model_17 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_17, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_17)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_17_stats <-
+  predictions_model_17 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+```
+
+```{r}
+accuracy <-
+  model_17_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_17_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_17_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_17_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_17_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_17_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+
+## Model 18
+```{r}
+student_bios_with_student_perf_and_school_feat_3 <-
+  student_bios_with_student_perf_and_school_feat %>%
+  filter(year=='2011') %>%
+  mutate(perc_attendance=round(perc_attendance*100/10)*10,
+         performance=round(performance/10)*10,
+         school_percentile=round(school_percentile*100/10)*10,
+         avgAtt=round(avgAtt*100/10)*10) %>%
+  mutate(performance=ifelse(is.na(performance), 'Missing', performance))
+
+model_18_data <-
+  student_bios_with_student_perf_and_school_feat_2 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, home_lang, ell, swd, poverty, perc_attendance, performance, avgAtt, school_percentile)
+
+sample_size <- floor(0.80 * nrow(model_17_data))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(model_17_data)), size=sample_size)
+
+train <- model_17_data[train_ind, ]
+test <- model_17_data[-train_ind, ]
+
+train_data <-
+  train %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+train_data2 <-
+  train_data %>%
+  na.omit()
+```
+
+```{r}
+X_train <- model.matrix(~ grade_level + sex + ethnicity + home_lang + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=train_data2)
+y_train <- cbind(train_data2$no, train_data2$yes)
+
+model_17 <- glmnet(X_train, y_train, family="binomial", lambda = 0)
+```
+
+
+```{r}
+test_data <-
+  test %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+X_test <-
+  model.matrix(~ grade_level + sex + ethnicity + home_lang + ell + swd + poverty + perc_attendance + performance + avgAtt + school_percentile, data=test_data)
+
+y_test <-
+  cbind(test_data$no, test_data$yes)
+
+for (col in setdiff(colnames(X_train), colnames(X_test))) {
+  m <-matrix(0, nrow=nrow(X_test))
+  colnames(m) <- c(col)
+  X_test <- cbind(X_test, m)
+}
+
+X_test <- (X_test[,colnames(X_train)])
+```
+
+```{r}
+predictions_model_17 <-
+  data.frame(y_test) %>%
+  merge(data.frame(predict(model_17, X_test, type="response")), by="row.names")
+
+colnames(predictions_model_17)<-c("Row.names", "cont", "did_not_cont", "p_did_not_continue")
+
+model_17_stats <-
+  predictions_model_17 %>%
+  mutate(total=cont+did_not_cont, num_correct=did_not_cont*(p_did_not_continue>=0.5) + cont*(p_did_not_continue<0.5))
+```
+
+```{r}
+accuracy <-
+  model_17_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(cont)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_17_stats %>%
+  filter(p_did_not_continue>=0.5) %>%
+  summarise(prec=sum(cont)/sum(total))
+
+precision
+```
+
+```{r}
+tpr <-
+  model_17_stats %>%
+  summarise(tpr=sum(did_not_cont*(p_did_not_continue>=0.5))/sum(did_not_cont))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_17_stats %>%
+  summarise(fpr=sum(cont*(p_did_not_continue>=0.5))/sum(cont))
+
+fpr
+```
+
+Calibration plot
+```{r}
+# predicted = p, actual = yes
+model_17_stats %>%
+  group_by(predicted=round(p_did_not_continue*10)/10) %>%
+  summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
+  ggplot(aes(x=predicted, y=actual, size=num)) +
+  geom_point() +
+  geom_abline(linetype=2) +
+  scale_x_continuous(labels=percent, lim=c(0,1)) +
+  scale_y_continuous(labels=percent, lim=c(0,1)) +
+  scale_size_continuous(labels=comma) +
+  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_17_stats %>%
+  select(cont, did_not_cont, p_did_not_continue) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_did_not_continue=label) %>%
+  select(actual_did_not_continue, p_did_not_continue, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$p_did_not_continue, auc_data$actual_did_not_continue)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+student_bios_with_student_perf_and_school_feat %>%
+  group_by(dbn) %>%
+  summarise(num_na=sum(is.na(performance))) %>%
+  ggplot(aes(x=reorder(dbn, num_na), y=num_na)) +
+  geom_bar(stat='identity')
+```
+```{r}
+student_bios_with_student_perf_and_school_feat %>%
+  group_by(dbn) %>%
+  summarise(num_na=sum(is.na(performance))) %>%
+  ggplot(aes(x=num_na)) +
+  geom_density(color='purple', fill='purple', alpha=0.5)
+```
+```{r}
+student_bios_with_student_perf_and_school_feat %>%
+  group_by(dbn) %>%
+  summarise(rank=median(school_percentile), num_na=sum(is.na(performance)), num_total=n(), perc=num_na/num_total) %>%
+  arrange(desc(num_na))
+```
+79Q950 is an Alternative School option for 18-21 yr olds to get their GEDs. Totally fine to drop?
+
+
+
+
+
+
+
+
+
+
+
+
+

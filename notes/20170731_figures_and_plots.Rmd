@@ -1,0 +1,321 @@
+---
+title: "Figures and Stuff"
+author: "Keri and David"
+date: "7/31/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = '/data/nycdoe/')
+options(tibble.width=Inf)
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(scales)
+theme_set(theme_bw())
+
+load('/data/nycdoe/clean_data/dont_overrite_me.Rdata')
+```
+Loading ethnicity data frame
+```{r}
+read_june_with_year <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram = col_character(), grade_level = col_integer(), ethnicity = col_character()))
+  df <- select(df, student_id_scram, ethnicity)
+}
+
+files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+ethnicity<- map_df(files, read_june_with_year)
+```
+
+Dataframes for all students 
+
+```{r}
+student_unique_performance <-
+  avg_all_percentile %>%
+  group_by(student_id_scram, grade_level) %>%
+  summarize(percentile = max(performance))
+
+#Cleaning up data
+student_unique_performance_long <-
+  student_unique_performance %>%
+  filter(!(is.na(grade_level) | is.na(student_id_scram) | is.na(percentile))) %>%
+  filter(grade_level >= 3)
+ 
+student_unique_performance_wide <- 
+  student_unique_performance_long %>%
+  spread(grade_level, percentile)
+
+colnames(student_unique_performance_wide) <- 
+  c("student_id_scram","grade3","grade4","grade5","grade6",
+    "grade7","grade8","grade9","grade10","grade11","grade12")
+```
+
+Correlation
+
+```{r}
+load('/data/nycdoe/clean_data/true_surv_corr.Rdata')
+plot(performance_correlations_of_true_survivors)
+```
+
+FUNCTION FOR PLOTTING GRADES AGAINST EACH OTHER
+
+```{r}
+# use standard eval hack to plot variable columns
+# more here: http://dplyr.tidyverse.org/articles/programming.html
+plotit <- function(df, grade_from, grade_to) {
+  grade_from <- enquo(grade_from)
+  grade_to <- enquo(grade_to)
+  
+  df %>%
+  select(student_id_scram,!!grade_from,!!grade_to)%>%
+  filter(!(is.na(!!grade_from)|is.na(!!grade_to)))%>%
+  mutate(bin=round((!!grade_from)/5)*5) %>%
+  group_by(bin) %>%
+  summarize(low25=quantile(!!grade_to, 0.25), mid = quantile(!!grade_to, 0.5), high75=quantile(!!grade_to,0.75), 
+            low10=quantile(!!grade_to,0.10), high90=quantile(!!grade_to,0.9)) %>%
+    
+  ggplot(aes(x=bin, y=mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=low25, ymax=high75), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low10, ymax=high90), alpha= 0.1,fill="blue") +
+  geom_abline(linetype = "dashed")
+}
+p <- plotit(student_unique_performance_wide, grade4, grade5)
+p + xlab("4th Grade Performance") + ylab("5th Grade Performance") + ggtitle("Performance in 4th Grade against Performance in 5th Grade")
+fourvsfive<- p
+
+q <- plotit(student_unique_performance_wide, grade4, grade8)
+q + xlab("4th Grade Performance") + ylab("8th Grade Performance") + ggtitle("Performance in 4th Grade against Performance in 8th Grade")
+fourvseight <-q
+
+r <- plotit(student_unique_performance_wide, grade4, grade11)
+r + xlab("4th Grade Performance") + ylab("11th Grade Performance") + ggtitle("Performance in 4th Grade against Performance in 11th Grade")
+fourvseleven <-r
+
+p <- plotit(student_unique_performance_wide, grade4, grade12)
+p + xlab("4th Grade Performance") + ylab("12th Grade Performance") + ggtitle("Performance in 4th Grade against Performance in 12th Grade")
+fourvstwelve<- p
+
+```
+
+Progression of top 10 percent students in 3rd grade through 12th grade
+
+```{r}
+top_10_in_3 <-
+  student_unique_performance_wide %>%
+  select(student_id_scram,grade3) %>%
+  filter(!is.na(grade3))%>%
+  mutate(bin=round(grade3/5)*5) %>%
+  filter(bin >= 90) %>%
+  select(student_id_scram)
+
+wide_10_in_3 <- left_join(top_10_in_3, student_unique_performance_wide, by="student_id_scram")
+
+long_10_in_3 <-
+  wide_10_in_3 %>% 
+  gather(key="grade_level", value="percentile", 2:11) %>%
+  select(student_id_scram, grade_level, percentile) %>%
+  filter(!is.na(percentile))%>%
+  group_by(grade_level) %>% 
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9), count=n()) %>% 
+  mutate(grade_level = as.numeric(substr(grade_level,6,7)))
+
+top_10_from_3rd  <-
+  long_10_in_3 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_point(aes(size=count))+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") +
+  labs(title = "Progression of the Top 10 percent of 3rd graders until 12th grade", 
+       x = "Grade Level", y = "Student Percentile") +
+  scale_x_discrete(limits = c('','','3','4','5','6','7','8','9','10','11','12'))
+  
+plot(top_10_from_3rd)
+
+```
+
+Progression of bottom 10 percent students in 3rd grade through 12th grade
+
+```{r}
+bot_10_in_3 <-
+  student_unique_performance_wide %>%
+  select(student_id_scram,grade3) %>%
+  filter(!is.na(grade3))%>%
+  mutate(bin=round(grade3/5)*5) %>%
+  filter(bin <= 10) %>%
+  select(student_id_scram)
+
+wide_10_in_3 <- left_join(bot_10_in_3, student_unique_performance_wide, by="student_id_scram")
+
+long_10_in_3 <-
+  wide_10_in_3 %>% 
+  gather(key="grade_level", value="percentile", 2:11) %>%
+  select(student_id_scram, grade_level, percentile) %>%
+  filter(!is.na(percentile))%>%
+  group_by(grade_level) %>% 
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9), count=n()) %>% 
+  mutate(grade_level = as.numeric(substr(grade_level,6,7)))
+
+bot_10_from_3rd  <-
+  long_10_in_3 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_point(aes(size=count))+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="red") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="red") +
+  labs(title = "Progression of the Bottom 10 percent of 3rd graders until 12th grade", 
+       x = "Grade Level", y = "Student Percentile") +
+  scale_x_discrete(limits = c('','','3','4','5','6','7','8','9','10','11','12'))
+  
+plot(bot_10_from_3rd)
+```
+Bottom 10 Percentile Progression 
+Sampled equally
+```{r}
+#Selecting student IDs of bottom 10 percent students
+bot_10_in_3 <-
+  student_unique_performance_wide %>%
+  select(student_id_scram,grade3) %>%
+  filter(!is.na(grade3))%>%
+  mutate(bin=round(grade3/5)*5) %>%
+  filter(bin <= 10) %>%
+  select(student_id_scram)
+
+#Combining their performance and their ethnicity
+bot_wide_10_in_3 <- left_join(bot_10_in_3, student_unique_performance_wide, by="student_id_scram")
+eth_bot_10 <- left_join(bot_wide_10_in_3, ethnicity, by="student_id_scram")
+
+#Selecting student IDs of students who only has one ethnicity
+one_eth_bot_10_id <-
+  eth_bot_10 %>%
+  group_by(student_id_scram, ethnicity) %>%
+  unique() %>%
+  ungroup() %>%
+  group_by(student_id_scram) %>%
+  summarize(count=n()) %>% 
+  filter(count == 1) %>%
+  select(student_id_scram)
+
+one_eth_bot_10 <- left_join(one_eth_bot_10_id, eth_bot_10, by="student_id_scram")
+
+#Sampling equal numbers for each student
+set.seed(11)
+sample_eth_bot_10_id <- 
+  one_eth_bot_10 %>%
+  filter(ethnicity != '.', ethnicity != 'Native American', ethnicity != 'Multi-Racial') %>%
+  select(student_id_scram, ethnicity) %>% 
+  group_by(student_id_scram) %>%
+  unique() %>%
+  group_by(ethnicity) %>%
+  unique() %>% 
+  sample_n(1000) %>%
+  ungroup() %>%
+  select(student_id_scram)
+
+sample_eth_bot_10 <- left_join(sample_eth_bot_10_id, eth_bot_10, by="student_id_scram")
+
+long_eth_bot_10 <-
+  sample_eth_bot_10 %>% 
+  gather(key="grade_level", value="percentile", 2:11) %>%
+  filter(!(is.na(percentile)))%>%
+  filter(!(ethnicity=='.')) %>% 
+  select(student_id_scram, grade_level, percentile, ethnicity) %>%
+  mutate(grade_level = as.numeric(substr(grade_level,6,7))) %>%
+  group_by(grade_level, ethnicity) %>% unique() %>%
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9),count=n())
+
+eth_bot_10_prog <-
+  long_eth_bot_10 %>%
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="red") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="red") +
+  geom_point(aes(size=count))+
+  facet_wrap(~ethnicity) +
+  labs(title = "Progression of the Bottom 10 percent of 3rd graders until 12th grade\nfaceted by ethnicity", 
+       x = "Grade Level", y = "Student Percentile", size = "Number of Students")
+
+plot(eth_bot_10_prog) 
+```
+Top 10 Percentile Progression 
+Sampled equally
+```{r}
+#Selecting student IDs of toptom 10 percent students
+top_10_in_3 <-
+  student_unique_performance_wide %>%
+  select(student_id_scram,grade3) %>%
+  filter(!is.na(grade3))%>%
+  mutate(bin=round(grade3/5)*5) %>%
+  filter(bin >= 90) %>%
+  select(student_id_scram)
+
+#Combining their performance and their ethnicity
+top_wide_10_in_3 <- left_join(top_10_in_3, student_unique_performance_wide, by="student_id_scram")
+eth_top_10 <- left_join(top_wide_10_in_3, ethnicity, by="student_id_scram")
+
+#Selecting student IDs of students who only has one ethnicity
+one_eth_top_10_id <-
+  eth_top_10 %>%
+  group_by(student_id_scram, ethnicity) %>%
+  unique() %>%
+  ungroup() %>%
+  group_by(student_id_scram) %>%
+  summarize(count=n()) %>% 
+  filter(count == 1) %>%
+  select(student_id_scram)
+
+one_eth_top_10 <- left_join(one_eth_top_10_id, eth_top_10, by="student_id_scram")
+
+#Sampling equal numbers for each student
+set.seed(11)
+sample_eth_top_10_id <- 
+  one_eth_top_10 %>%
+  filter(ethnicity != '.', ethnicity != 'Native American', ethnicity != 'Multi-Racial') %>%
+  select(student_id_scram, ethnicity) %>% 
+  group_by(student_id_scram) %>%
+  unique() %>%
+  group_by(ethnicity) %>%
+  unique() %>% 
+  sample_n(1000) %>%
+  ungroup() %>%
+  select(student_id_scram)
+
+sample_eth_top_10 <- left_join(sample_eth_top_10_id, eth_top_10, by="student_id_scram")
+
+long_eth_top_10 <-
+  sample_eth_top_10 %>% 
+  gather(key="grade_level", value="percentile", 2:11) %>%
+  filter(!(is.na(percentile)))%>%
+  filter(!(ethnicity=='.')) %>% 
+  select(student_id_scram, grade_level, percentile, ethnicity) %>% 
+  mutate(grade_level = as.numeric(substr(grade_level,6,7))) %>%
+  group_by(grade_level, ethnicity) %>% unique() %>% 
+  summarize(lower=quantile(percentile, 0.25), mid = quantile(percentile, 0.5), upper=quantile(percentile,0.75), 
+            low=quantile(percentile,0.10), high=quantile(percentile,0.9),count=n()) 
+
+eth_top_10_prog <-
+  long_eth_top_10 %>% 
+  ggplot(aes(x = grade_level, y= mid)) +
+  geom_line()+
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.2, fill="blue") +
+  geom_ribbon(aes(ymin=low, ymax=high), alpha= 0.1,fill="blue") +
+  geom_point(aes(size=count))+
+  facet_wrap(~ethnicity) +
+  labs(title = "Progression of the Top 10 percent of 3rd graders until 12th grade\nfaceted by ethnicity", 
+       x = "Grade Level", y = "Student Percentile", size = "Number of Students")
+plot(eth_top_10_prog)
+```
+Save all relevant plots and figures
+```{r}
+save(performance_correlations_of_true_survivors,
+     fourvsfive, fourvseight, fourvseleven, fourvstwelve,
+     bot_10_from_3rd, top_10_from_3rd,
+     eth_top_10_prog, eth_bot_10_prog, file='~/nycschools/figures/performance_and_survivals.Rdata')
+```
