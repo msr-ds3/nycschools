@@ -504,7 +504,7 @@ withfeatures_fullr1r1_09_15 <-
 
 ```{r add-high-school-features}
 
-# there are 152 `r1programcode1` that are NOT in `hs_features_new` - this is 10,986 (2.274%) out of all applications!
+# there are 152 `r1r1_dbn` that are NOT in `hs_features_new` - this is 10,986 (2.274%) out of all applications!
 withfeatures_fullr1r1_09_15 %>%
   filter(!(r1r1_dbn %in% hs_features_new$dbn)) #%>% distinct(r1programcode1) 
 
@@ -612,14 +612,18 @@ tidy(logit_satisfied) %>%
   tail(10) %>%
   ggplot(aes(y=term, x=estimate)) +
   geom_point() +
-  labs(title = "Features that matter the most")# + scale_x_log10()
+  labs(title = "Features that matter the most", 
+       y = "Features", 
+       x = "Coefficient")# + scale_x_log10()
 # features that matter the least
 tidy(logit_satisfied) %>% 
   arrange(estimate) %>%
   head(10) %>%
   ggplot(aes(y=term, x=estimate)) +
   geom_point() +
-  labs(title = "Features that matter the least")
+  labs(title = "Features that matter the most", 
+       y = "Features", 
+       x = "Coefficient")# + scale_x_log10()
 ```
 
 ```{r model-evaluation, message=FALSE}

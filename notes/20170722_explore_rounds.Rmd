@@ -1,0 +1,202 @@
+---
+title: "Explore Rounds (HSAPS)"
+author: "Thoa"
+date: "7/22/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#setwd('/data/nycdoe/')
+hsaps_files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+```
+
+```{r read-hsaps, message=FALSE, warning=FALSE, include=FALSE}
+# read hsaps data
+read_students_with_matches <- function(filename) {
+  print(filename)
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            final_disposition_round=col_character(),
+                                            opt_out_status=col_integer()))
+  df$year <- year
+  df <- df %>% 
+    select(year, student_id_scram, contains("programcode"), starts_with("opt_out_"), ends_with("match"), contains("final_disposition"), ends_with("mp"))
+}
+names2016 <- read_csv(url('https://data.cityofnewyork.us/api/views/7crd-d9xh/rows.csv?accessType=DOWNLOAD'))
+```
+
+Currently, this notebook only examines 2010 data.
+
+## 2010 data
+
+
+```{r read-2010}
+students_with_matches_10 <- map_df(hsaps_files[6], read_students_with_matches)
+# 2010 opt-out status:  78172 is 0 (their opt_out_reason is accordingly NA). 5092 is 1. No NA!
+students_with_matches_10 %>%
+  group_by(opt_out_status) %>%
+  count()
+# 2010 opt-out reasons: among the ~5k above, there are 7 reasons. 
+students_with_matches_10 %>%
+  group_by(opt_out_reason) %>%
+  count()
+# students_with_matches_10 %>%
+#   filter(!is.na(r3programcode1))
+
+students_with_matches_10 %>%
+  group_by(final_disposition_round) %>%
+  count()
+```
+
+1. Among the people applied in round 1, how many of them received their final disposition in Specialized Round, Main Round, Supplementary, and Appeals?
+
+==> Answer:
+* There are no Specialized disposition for people applying in round 2 or round 3. So SPECIALIZED DECISION ONLY HAPPENS IN ROUND 1. 
+* Roughly ~5300 applicants (in round 1) get a Specialized disposition.
+* Only a small fraction of all applicants did apply in round 3: ~7k / ~83k = ~1/12, and 90% of them get a Supplementary disposition.
+
+```{r re-attempt-analyze-2010}
+# first question: DONE!
+
+students_with_matches_10 %>%
+  filter(!is.na(r1programcode1)) %>%
+  gather("round_choice", "applied_to", 3:38) %>%
+  mutate(round_applied = substring(round_choice, 2,2), 
+         rank_on_list = substring(round_choice, 14)) %>%
+  select(-round_choice) %>%
+  filter(round_applied == 1) %>%
+  group_by(final_disposition_round) %>%
+  summarize(n = length(unique(student_id_scram))) %>%
+  arrange(desc(n))
+
+students_with_matches_10 %>%
+  gather("round_choice", "applied_to", 3:38) %>%
+  mutate(round_applied = substring(round_choice, 2,2), 
+         rank_on_list = substring(round_choice, 14)) %>%
+  filter(!is.na(applied_to)) %>%
+  select(-round_choice) %>%
+  group_by(final_disposition_round, round_applied) %>%
+  summarize(n = length(unique(student_id_scram))) %>%
+  arrange(final_disposition_round)
+
+students_with_matches_10 %>%
+  gather("round_choice", "applied_to", 3:38) %>%
+  mutate(round_applied = substring(round_choice, 2,2), 
+         rank_on_list = substring(round_choice, 14)) %>%
+  filter(!is.na(applied_to)) %>%
+  select(-round_choice) %>%
+  group_by(final_disposition_round, round_applied) %>%
+  summarize(n = length(unique(student_id_scram))) %>%
+  arrange(final_disposition_round)
+
+(spec_round_descriptives <- students_with_matches_10 %>%
+  filter(final_disposition_round == "Specialized Round") %>%
+  select(year, student_id_scram, contains("final")) %>%
+  group_by(final_disposition_dbn) %>%
+  count())  #there are 94 schools, how come?? 
+
+(spec_round_schools <-
+  left_join(spec_round_descriptives, names2016, by=c("final_disposition_dbn" = "dbn")))
+students_with_matches_10 %>%
+  filter(!is.na(r2programcode1)) %>%
+  gather("round_choice", "applied_to", 3:38) %>%
+  mutate(round_applied = substring(round_choice, 2,2), 
+         rank_on_list = substring(round_choice, 14)) %>%
+  select(-round_choice) %>%
+  filter(round_applied == 2) %>%
+  group_by(final_disposition_round) %>%
+  summarize(n = length(unique(student_id_scram))) %>%
+  arrange(desc(n))
+
+students_with_matches_10 %>%
+  filter(!is.na(r3programcode1)) %>%
+  gather("round_choice", "applied_to", 3:38) %>%
+  mutate(round_applied = substring(round_choice, 2,2), 
+         rank_on_list = substring(round_choice, 14)) %>%
+  select(-round_choice) %>%
+  filter(round_applied == 3) %>%
+  group_by(final_disposition_round) %>%
+  summarize(n = length(unique(student_id_scram))) %>%
+  arrange(desc(n))
+```
+
+2. What is the opt_out_status/reason of the people with NA in final_disposition_round? 
+
+==> Answer:
+* opt_out_status: 2276 of these applicants did not opt out (so I'm not sure why they did not receive a final disposition**). 3240 did opt out.
+* opt_out_reason: the reasons varied for these 3240 applicants. The majority of them did apply somewhere in the process, but then ended up not attending an NYC public school, therefore their final_disposition is NA.
+```{r analyze-2010-second-question}
+
+students_with_matches_10 %>%
+  filter(is.na(final_disposition_round)) %>%
+  group_by(opt_out_status) %>%
+  count()
+
+students_with_matches_10 %>%
+  filter(is.na(final_disposition_round)) %>%
+  group_by(opt_out_reason) %>%
+  filter(!is.na(opt_out_reason)) %>%
+  count() %>%
+  arrange(n) %>%
+  print(n = Inf, width = Inf)
+```
+
+** If you wonder maybe because they did not list any choice at all: actually 1720 of them did apply in round 1 or round 2. 
+```{r}
+students_with_matches_10 %>%
+  filter(is.na(final_disposition_round) & is.na(opt_out_reason)) %>%
+  group_by(is.na(r1programcode1) & is.na(r2programcode1)) %>%
+  count()
+```
+
+3. What is the final_disposition and final_disposition_dbn of the people with NA in final_disposition_round? 
+
+==> Answer: they are both NA. (which means data is consistent, great!)
+```{r analyze-2010-third-question}
+
+# third question: DONE!
+students_with_matches_10 %>%
+  filter(is.na(final_disposition_round)) %>%
+  group_by(final_disposition_dbn) %>%
+  count()
+students_with_matches_10 %>%
+  filter(is.na(final_disposition_round)) %>%
+  group_by(final_disposition) %>%
+  count()
+
+```
+
+4. What is the opt_out_status/reason of the people with Appeals? with Specialized Round? with Supplementary Round?
+
+```{r analyze-2010-fourth-question}
+## when people get some disposition, most of them did NOT opt out. But there are still 1851 applicants who did opt out despite having a final disposition.
+students_with_matches_10 %>%
+  group_by(final_disposition_round, opt_out_status) %>%
+  count() %>%
+  arrange(opt_out_status)
+
+## among the 1851 applicants with disposition but opting out, 96% "not attending a NYC public school":
+# 11 in Appeals
+# 1256 in Main
+# 137 in Specialized
+# 277 in Supplementary
+students_with_matches_10 %>%
+  group_by(final_disposition_round, opt_out_reason) %>%
+  count() %>%
+  arrange(opt_out_reason)
+```
+ 
+#### Conclusion for 2010:
+
+* Specialized go first, hence their final decision only happens in round 1.
+* Decision in round 3 are mostly Supplementary.
+* You may still opt out despite having a final disposition.
+* There's not a clear explanation as to why someone's final disposition is NA, because some of them opted out and some did not. 
+
+* So the DOE will go through:
+ - Specialized round & make decision. You can only receive this kind of decision if you apply in round 1.
+ - Main round & make decision. You'll be more likely to receive this kind of decision if you apply in round 1 and 2.
+ - Supplementary round & make decision. You'll be more likely to receive this kind of decision if you apply in round 3.
+ - Appeals: applicable for applicants in any round.

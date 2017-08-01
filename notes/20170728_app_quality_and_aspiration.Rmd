@@ -1,0 +1,254 @@
+---
+title: "20170728 - Application Quality and Aspiration"
+author: "Thoa"
+date: "7/28/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r load-school-percentile, include=FALSE}
+load('/data/nycdoe/clean_data/school_based_percentile.Rdata')
+head(school_df)
+
+summary(school_df)
+school_df %>% filter(percentile_school < 0.5 & percentile_school > 0.2) %>% arrange(percentile_school)
+
+school_percentile <- school_df %>% select(dbn, percentile_school)
+rm(school_df)
+```
+
+```{r how-good-are-applicants}
+
+####### HOW GOOD ARE THE STUDENTS WHO APPLY TO A SCHOOL? ###################
+load("/data/nycdoe/clean_data/withfeatures_fullr1r1_09_15.Rdata")
+load('/data/nycdoe/clean_data/stud_perf_quantiledGPA.Rdata')
+perstudent_gpa_long <- 
+  stud_perf_quantGPA %>%
+  select(year, student_id_scram, grade_level, GPA, quantiled_GPA) %>%
+  arrange(student_id_scram, year)
+rm(stud_perf_quantGPA)
+perstudent_gpa_long$quantiled_GPA <- factor(perstudent_gpa_long$quantiled_GPA, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Missing"))
+
+# 2,291 rows missing school_name. This is from 31 programcodes (and dbns) without names.
+withfeatures_fullr1r1_09_15 %>%
+  filter(r1r1_schoolname == "Missing") %>% distinct(r1r1_dbn, r1programcode1)
+rm(perschool_appquality)
+perschool_appquality <-
+  withfeatures_fullr1r1_09_15 %>%
+  group_by(year, r1r1_dbn) %>%
+  select(year, r1r1_dbn, r1r1_schoolname, r1programcode1, r1r1_pgname, student_id_scram) %>%
+  left_join(perstudent_gpa_long, by=c("student_id_scram", "year")) %>%
+  arrange(year, r1r1_dbn, quantiled_GPA)
+# there are only 7 schools in certain years that do NOT have applicants with missing quantiled_GPA. 4 schools have more than 1,000 applicants with missing quantiled_GPA.
+# however, more important is that 10 schools have >90% applicants that miss out quantiled_GPA (9 out them have 100% applicants missing quantiled_GPA). 
+(missing_applicant_perf_rate <-
+  perschool_appquality %>%
+  group_by(year, r1r1_dbn) %>%
+  summarize(num_missing_student_perf = sum(quantiled_GPA == "Missing"),
+            pc_applicants_missing_perf = num_missing_student_perf/n()) %>%
+  arrange(desc(pc_applicants_missing_perf)))
+
+# anyway, we will drop all rows that have missing quantiled_GPA. However, among the schools that still survive on our list, we will keep track of the applicants they miss out, so that our calculated "applicant quality" is not skewed.
+rm(perschool_appquality_dropMissingGPA)
+perschool_appquality_dropMissingGPA <-
+  perschool_appquality %>%
+  filter(quantiled_GPA != "Missing") %>%
+  mutate(quantiled_GPA = as.numeric(quantiled_GPA)) %>%
+  group_by(year, r1r1_dbn) %>%
+  summarize(median_quantiledGPA = median(quantiled_GPA)) %>%
+  left_join(missing_applicant_perf_rate, by=c("year", "r1r1_dbn")) %>%
+  arrange(year, desc(median_quantiledGPA))
+
+# plot it!
+yr = 2015
+
+# what is that one row that has missing value???
+perschool_appquality_dropMissingGPA %>%
+  filter(year == yr) %>% #filter(is.na(r1r1_dbn))
+  ggplot() +
+  geom_histogram(aes(x = median_quantiledGPA), bins = 40) +
+  labs(title = paste("Distribution of Applicant Quality among Schools in", yr),
+       x = "Median applicant's GPA percentile",
+       y = "Number of schools") +
+  scale_x_continuous(breaks = seq(1,10, 1), minor_breaks = NULL, limits = c(1, 10))
+
+# this is pretty strange. better schools receive less good students??
+summary(school_percentile$percentile_school)
+perschool_appquality_dropMissingGPA %>%
+  left_join(school_percentile, by=c("r1r1_dbn" = "dbn")) %>%
+  mutate(pc_available_applicants_perf = 1 - pc_applicants_missing_perf) %>% #filter(is.na(percentile_school))
+  filter(year == yr) %>%
+  ggplot(aes(y = median_quantiledGPA, x = percentile_school, color = pc_applicants_missing_perf)) +
+  geom_point(size = 2) +
+  labs(title = paste("School percentile VS. Applicant quality in", yr), 
+       x = "School percentile (better schools on the right)",
+       y = "Typical applicant quality",
+       color = "% applicants w/ missing info") +
+  geom_smooth()
+```
+
+
+```{r how-ambitious-are-applicants}
+
+####### HOW AMBITIOUS ARE STUDENTS' APPLICATIONS? ########################
+load("/data/nycdoe/clean_data/eightgrade_apps_long_w_dbn.Rdata")
+summary(eightgrade_apps_long_w_dbn)
+
+rm(eightgrade_apps_long_w_dbn_percentile)
+eightgrade_apps_long_w_dbn_percentile <-
+  eightgrade_apps_long_w_dbn %>%
+  left_join(school_percentile, by="dbn") %>%
+  select(year, student_id_scram, choice, program_applied, dbn, percentile_school)
+head(eightgrade_apps_long_w_dbn_percentile)
+
+# among ~9.4 million applications, ~4.6 million don't have percentile_school
+summary(eightgrade_apps_long_w_dbn_percentile)  
+
+# # sanity check: anyone not list choice1 but list choice2, etc.? YES! There are a good number of people who do this. 
+# eightgrade_apps_long_w_dbn %>%
+#   mutate(foo = is.na(program_applied)) %>%
+#   #select(year, student_id_scram, choice, program_applied, foo) %>%
+#   filter(year == 2005) %>%
+#   arrange(student_id_scram) %>%
+#   group_by(student_id_scram) %>%
+#   summarize(bar = length(rle(foo)),
+#             baz = sum(lag(foo, default=0) != foo)) %>%
+#   filter(bar > 2 | baz > 1)
+# 
+# # Because there are so many cases like this, we now only care that applicants MUST NOT SKIP TOP1 CHOICE if they ever list any choice at all.
+# eightgrade_apps_long_w_dbn_notskip_r1r1 <-
+#   eightgrade_apps_long_w_dbn %>%
+#   group_by(year, student_id_scram) %>%
+#   mutate(foo = is.na(program_applied)) %>%
+#   #select(year, student_id_scram, choice, program_applied, foo) %>%
+#   filter(year == 2005) %>%
+#   arrange(student_id_scram) %>%
+#   group_by(student_id_scram)
+# who_skip_r1r1 <-
+#   eightgrade_apps_long_w_dbn %>%
+#   filter(choice == "r1pgrogramcode1" & is.na(program_applied)) %>%
+#   left_join(eightgrade_apps_long_w_dbn, by=c("year", "student_id_scram"))
+# 
+# eightgrade_apps_long_w_dbn[which(eightgrade_apps_long_w_dbn$choice == "r1programcode1")]
+#     
+# eightgrade_apps_long_w_dbn %>%
+#   filter(student_id_scram == "102112789")
+
+# compute "application score"
+perapp_aspiration <-
+  eightgrade_apps_long_w_dbn_percentile %>%
+  group_by(year, student_id_scram) %>%
+  summarize(schoolpercentile_of_topchoice = percentile_school[1],
+            median_schoolpercentile = median(percentile_school, na.rm=TRUE)) 
+head(perapp_aspiration)
+summary(perapp_aspiration)
+
+# missing_topchoice <-
+#   eightgrade_apps_long_w_dbn_percentile %>%
+#   filter(year == 2010) %>%
+#   group_by(student_id_scram) %>%
+#   summarize(schoolpercentile_of_topchoice = percentile_school[1]) %>%
+#   filter(is.na(schoolpercentile_of_topchoice))
+# 
+# eightgrade_apps_long_w_dbn_percentile %>%
+#   filter(year == 2010 & student_id_scram %in% missing_topchoice$student_id_scram & choice == "r1programcode1") %>%
+#   count(is.na(program_applied))
+# # 
+
+# 47,414 rows like this, so it seems missing topchoice-percentile does NOT cover missing median-percentile
+perapp_aspiration %>%
+  filter(is.na(schoolpercentile_of_topchoice) & !is.na(median_schoolpercentile))
+
+# for now, we will just drop all NA, no matter which column it is in
+perapp_aspiration_dropNA <-
+  perapp_aspiration %>%
+  filter(!is.na(schoolpercentile_of_topchoice) & !is.na(median_schoolpercentile))
+summary(perapp_aspiration_dropNA)
+
+# plot it:
+yr = 2015
+
+# method 1: "application score" = schoolpercentile_of_topchoice
+perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_histogram(aes(x = schoolpercentile_of_topchoice), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       x = "Application's aspiration",
+       y = "Number of students at this level") +
+  scale_y_continuous(labels = scales::comma)
+perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_density(aes(x = schoolpercentile_of_topchoice)) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       x = "Application's aspiration",
+       y = "Number of students at this level")
+
+# method 2: "application score" = median_schoolpercentile
+perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_histogram(aes(x = median_schoolpercentile), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       x = "Application's aspiration",
+       y = "Number of students at this level") +
+  scale_y_continuous(labels = scales::comma)
+perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_density(aes(x = median_schoolpercentile)) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       x = "Application's aspiration",
+       y = "Number of students at this level")
+           
+```
+
+```{r student-ambitious-vs-performance}
+rm(aspiration_vs_perf)
+aspiration_vs_perf <-
+  perapp_aspiration_dropNA %>%
+  left_join(perstudent_gpa_long, by=c("student_id_scram", "year"))
+summary(aspiration_vs_perf)
+head(aspiration_vs_perf)
+tail(aspiration_vs_perf)
+# there are 230,552 students (~ 33%) with NA quantiled_GPA. We will coerce all these to "Missing" bin.
+aspiration_vs_perf %>%
+  filter(is.na(quantiled_GPA))
+# aspiration_vs_perf <-
+#   aspiration_vs_perf %>%
+#   filter(!is.na(quantiled_GPA))
+aspiration_vs_perf$quantiled_GPA[(is.na(aspiration_vs_perf$quantiled_GPA))] <- "Missing"
+aspiration_vs_perf$quantiled_GPA <- factor(aspiration_vs_perf$quantiled_GPA, levels = c("Missing", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))
+
+
+# plot it!
+yr = 2015
+# method 1: "application score" = schoolpercentile_of_topchoice
+aspiration_vs_perf %>%
+  #mutate(quantiled_GPA = reorder(quantiled_GPA, mean_rating)) %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_point(aes(x = quantiled_GPA, y = schoolpercentile_of_topchoice), alpha = 0.2, color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       y = "Application's aspiration",
+       x = "Applicant's 8th-grade percentile (based on GPA)")
+# method 2: "application score" = median_schoolpercentile
+aspiration_vs_perf %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_point(aes(x = quantiled_GPA, y = median_schoolpercentile), alpha = 0.2, color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       y = "Application's aspiration",
+       x = "Applicant's 8th-grade percentile (based on GPA)")
+```
