@@ -621,7 +621,7 @@ tidy(logit_satisfied) %>%
   head(10) %>%
   ggplot(aes(y=term, x=estimate)) +
   geom_point() +
-  labs(title = "Features that matter the most", 
+  labs(title = "Features that matter the least", 
        y = "Features", 
        x = "Coefficient")# + scale_x_log10()
 ```
