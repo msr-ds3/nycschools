@@ -245,12 +245,12 @@ rm(perstudent_perf)
 # NOT DONE: SPREAD table to have student quantGPA across years (i.e. 1 row per student_id), not so possible because the education path of students are not uniform
 
 
-# NEW DATA: load in data on students' performance (what `performance` means for students, please see Keri and David)
+# NEW DATA: load in data on students' performance (what `performance` means for students: first, percentile student's scores against their peers in the same year and the same grade; then, take average of all available percentiles - "available" because some students will NOT take all kinds of tests out there)
 load('/data/nycdoe/clean_data/avg_all_long.Rdata')
 
 # this takes too long to run!
-avg_all_percentile %>%
-  filter(student_id_scram %in% satisfied_09_15$student_id_scram)
+# avg_all_percentile %>%
+#   filter(student_id_scram %in% satisfied_09_15$student_id_scram)
 
 rm(perstudent_gpa_and_perf_long)
 perstudent_gpa_and_perf_long <-
