@@ -1,0 +1,137 @@
+---
+title: "Computing Distances"
+author: "Rivka and Ro"
+date: "7/28/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#load files
+```{r}
+library(rgeos)
+library(geosphere)
+library(tidyverse)
+library(dplyr)
+library(leaflet)
+library(httr)
+library(sp)
+library(rgdal)
+library(readr)
+
+
+
+load("/data/nycdoe/clean_data/join_zone_bio_grade.Rdata")
+
+#load lat lonngs and census tract for school
+load("/data/nycdoe/school_info_with_lat_long.Rdata")
+
+# load nyc tracts for census tracts 
+load('/data/nycdoe/nyc_tracts.Rdata')
+
+# boroughs, counties, by zip codes
+load("/data/nycdoe/clean_data/boro_zip_join.Rdata")
+
+# school info census tract
+load("/data/nycdoe/school_info_with_lat_long.Rdata")
+
+
+```
+
+```{r}
+
+# df for location of students by census tract and where they go to school by grade, year
+students_location <- join_zone_bio_with_grade %>% select(student_id_scram, 
+                                                         year, 
+                                                         dbn, 
+                                                         grade_level, 
+                                                         res_zip_cde,
+                                                         census_tract)
+
+# rename column for census tract to student census tract
+students_location <- students_location %>% rename(student_census_tract = census_tract)
+
+# change the census tract to pad with zeros to make it 6 digits
+students_location <- students_location %>% 
+  mutate(student_census_tract = as.integer(student_census_tract))
+
+students_location <- students_location %>%
+  mutate(student_census_tract =  sprintf("%06d", student_census_tract))
+
+students_location <- students_location %>%
+  mutate(student_census_tract = as.character(student_census_tract))
+
+# convert zip code for student to integer
+students_location <- students_location %>% mutate(res_zip_cde = as.integer(res_zip_cde))
+
+# lat and long for schools
+school_lat_long <- lat_long
+
+# df for centroids of nyc census tracts and their counties
+centroids <- as.data.frame(gCentroid(nyc_tracts, byid = T))
+centroids$tract <- nyc_tracts@data$TRACTCE
+centroids$county <- nyc_tracts@data$COUNTYFP
+
+# rename x and y of centroids to lat and long
+centroids_census <- centroids %>% rename(lon = x, lat = y)
+
+# counties and zip codes | rename county column to join with student data
+county_zip <-  boro_zip_join %>% rename(student_county = county) %>% select(-borough)
+
+# school information with census tract
+school_census_tract_data <- school_info %>% rename(dbn = `ATS System Code`, school_name = `Location Name`,
+                                              school_zip = `Zip`, school_census_tract = `Census Tract`) %>%
+  select(dbn, school_name, school_zip, school_census_tract)
+
+# df for joining on school counties later
+school_county <- county_zip %>% rename(school_county = student_county)
+
+```
+
+### Joining data frames
+
+```{r}
+
+# join student information with county and zip
+student_dbn_location <- inner_join(students_location, county_zip, by = c("res_zip_cde" = "zipcode"))
+
+# join student county and census tract to get lat, long for where they live
+student_dbn_location <- inner_join(student_dbn_location, centroids_census, by = c("student_census_tract" = "tract", "student_county" = "county"))
+
+# rename lat long for student lat long
+student_dbn_location <- student_dbn_location %>% rename(student_lon = lon, student_lat = lat)
+
+# add lon and lat for dbn
+student_dbn_location <- inner_join(student_dbn_location, school_lat_long, by = "dbn")
+
+# rename columns for dbn lat, long, and school address
+student_dbn_location <- student_dbn_location %>%
+  rename(school_address = address, school_lon = lon, school_lat = lat)
+
+# add census tract and name for the school
+student_dbn_location <- inner_join(student_dbn_location, school_census_tract_data, by = "dbn")
+
+# add school county 
+student_dbn_location <- inner_join(student_dbn_location, school_county, by = c("school_zip" = "zipcode"))
+
+```
+
+## calculating distance in a new column
+
+```{r}
+
+# function to compute distance in miles from lon, lat pairs
+compute_distance_in_miles <- Vectorize(function(lon1, lat1, lon2, lat2) {
+  distm(c(lon1, lat1), c(lon2, lat2), fun = distHaversine)[,1] / 1609  
+})
+
+student_dbn_location <- student_dbn_location %>% mutate(dist = compute_distance_in_miles(school_lon, school_lat, student_lon, student_lat))
+
+save(student_dbn_location, file = "/data/nycdoe/clean_data/distance_students_commute_to_school.Rdata")
+
+
+```
+
