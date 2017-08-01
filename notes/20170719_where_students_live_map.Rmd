@@ -423,7 +423,7 @@ leaflet(map_data) %>%
 
 ```{R}
 
-
+ethnicity_per_school %>% group_by(dbn, year) %>% summarise()
 
 ```
 
