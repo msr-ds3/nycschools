@@ -9,7 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
-library(plyr)
 library(dplyr)
 library(leaflet)
 library(httr)
@@ -24,17 +23,13 @@ library(htmlwidgets)
 
 ```{r}
 
-# shape file for school zones
-hs_zones <- GET("https://data.cityofnewyork.us/api/geospatial/j4gs-ge7j?method=export&format=GeoJSON")
-hs_dbns <- readOGR(content(hs_zones,'text'), 'OGRGeoJSON', verbose = F)
-
 load("/data/nycdoe/clean_data/where_students_go_feeder_year.Rdata")
 feeder_data <- where_students_go_feeder_data_year
 
 #load lat lonngs and census tract for school
 load("/data/nycdoe/school_info_with_lat_long.Rdata")
 
-load("/data/nycdoe/")
+load("/data/nycdoe/clean_data/distance_students_commute_to_school.Rdata")
 
 ```
 
@@ -43,35 +38,31 @@ load("/data/nycdoe/")
 #think about: computing distance for how for a student travels for schools
 
 # number of closed schools = zero
-#school_info %>% select(`ATS System Code`, `Location Code`, `Location Name`, `Managed By Name`, `Location #Category Description`,  `Census Tract`) %>% group_by(`Status Description`) %>% summarise()
 
 
 # df to join later on dbn to add census tract for dbn and the school name
 school_info_join <- school_info %>% 
-  select(`ATS System Code`, `Location Name`, `Location Category Description`, `Census Tract`)
+  select(`ATS System Code`, `Location Name`, `Census Tract`)
+
 # fix names of columns
-school_info_join <- school_info_join %>% 
-  rename(ats_system_code = `ATS System Code`, 
-         location_name = `Location Name`, 
-         loc_category_descr = `Location Category Description`, 
-         school_census_tract = `Census Tract`)
+school_info_join <- school_info_join %>% rename(ats_system_code = `ATS System Code`, location_name = `Location Name`, school_census_tract = `Census Tract`)
+
 # change census tract to 6 digits
 school_info_join <- school_info_join %>% 
   ungroup() %>% 
   mutate(school_census_tract = as.integer(school_census_tract))
+
 school_info_join <- school_info_join %>%
   mutate(school_census_tract =  sprintf("%06d", school_census_tract))
+
 school_info_join <- school_info_join %>%
   mutate(school_census_tract = as.character(school_census_tract))
 
 # df with latitude and longitude for each school
 schools_lat_long <- lat_long
 
-student_dbn_location %>% distinct(dbn, school_zip, school_county) 
-
 # df for adding lat long of schools in map
 marker_schools <- student_dbn_location %>% select(dbn, school_name, school_lat, school_lon) %>% distinct()
-save(marker_schools, file = "/data/nycdoe/clean_data/schools_lat_long.Rdata")
 
 ```
 
