@@ -1,6 +1,7 @@
 ---
-title: "Where Do students go to school?"
+title: "Where do students go to school?"
 output: html_document
+author: "Rivka and Ro"
 ---
 
 ```{r setup, include=FALSE}

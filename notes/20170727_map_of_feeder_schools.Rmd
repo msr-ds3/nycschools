@@ -6,7 +6,13 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, fig.height = 8, fig.width = 12)
+library(dplyr)
+library(readr)
+library(sp)
+library(leaflet)
+library(httr)
+library(rgdal)
 ```
 
 ## load files
@@ -23,7 +29,6 @@ feeder_data <- where_students_go_feeder_data_year
 #load lat lonngs and census tract for school
 load("/data/nycdoe/school_info_with_lat_long.Rdata")
 
-load("/data/nycdoe/")
 
 ```
 
@@ -32,7 +37,7 @@ load("/data/nycdoe/")
 #think about: computing distance for how for a student travels for schools
 
 # number of closed schools = zero
-school_info %>% select(`ATS System Code`, `Location Code`, `Location Name`, `Managed By Name`, `Location Category Description`,  `Census Tract`) %>% group_by(`Status Description`) %>% summarise()
+#school_info %>% select(`ATS System Code`, `Location Code`, `Location Name`, `Managed By Name`, `Location Category Description`,  `Census Tract`) #%>% group_by(`Status Description`) %>% summarise()
 
 
 # df to join later on dbn to add census tract for dbn and the school name
@@ -92,7 +97,9 @@ hs_to_mid <- inner_join(hs_to_mid, lat_long_and_school_info, by =c("mid_dbn" = "
 load("/data/nycdoe/nyc_tracts.Rdata")
 
 # sample middle school map data
-sample_ms_map_data <- mid_to_hs %>% filter(mid_dbn == "10X368" & year == 2012)
+sample_ms_map_data <- mid_to_hs %>% filter(mid_dbn == "10X368" & year == 2014)
+
+sample_ms_map_data %>% group_by(school_census_tract) %>% summarise(count = n())
 
 # sample hs map data
 sample_hs_map_data <- hs_to_mid %>% filter(hs_dbn == "01M292", year == 2010)
@@ -101,7 +108,7 @@ sample_hs_map_data <- hs_to_mid %>% filter(hs_dbn == "01M292", year == 2010)
 ms_map <- merge(nyc_tracts, sample_ms_map_data, by.x="TRACTCE", by.y = "school_census_tract")
 
 # high school map merge
-hs_map <- merge(nyc_tracts, sample_hs_map_data, by.x="TRACTCE", by.y = "school_census_tract")
+#hs_map <- merge(nyc_tracts, sample_hs_map_data, by.x="TRACTCE", by.y = "school_census_tract")
 
 ```
 
@@ -137,64 +144,5 @@ leaflet(ms_map) %>%
 
 ```
 
-### high school to middle school
-```{r}
-
-hs_to_mid <- where_students_go_feeder_data_year %>% select(hs_dbn, mid_dbn, year, count) %>% arrange(hs_dbn)
-
-```
-
-### function for map from high school to middle school
-```{r, echo=FALSE}}
-
-ms_zones <- GET("https://data.cityofnewyork.us/api/geospatial/awbp-qqq3?method=export&format=GeoJSON")
-ms_dbns <- readOGR(content(ms_zones,'text'), 'OGRGeoJSON', verbose = F)
-
-hs_to_mid <- hs_to_mid %>% ungroup() %>% mutate(mid_dbn = as.factor(mid_dbn), hs_dbn = as.factor(hs_dbn))
-
-hs_to_mid <- hs_to_mid %>% filter(hs_dbn == "10X368", year == 2009)
-
-ms_map <- merge(ms_dbns, hs_to_mid, by.x = "dbn", by.y = "mid_dbn")
-
-#doesn't exist for stuyvesant or brooklyn latin
-pal <- colorNumeric(palette = "Reds",
-                    domain = range(ms_map@data$count, na.rm=T))
-
-  leaflet(ms_map) %>%
-    #addTiles() %>% 
-    addPolygons(weight = .5, fillColor = ~pal(count), popup = ~paste("Number of Students:", count, "</br>School Code:", dbn), fillOpacity = .7) %>% 
-    addLegend(pal = pal, values = ~count, opacity = 1, 
-              title = "<p>Where Students come from </br> to a High School</p>") %>%
-     #addMarkers(~-73.85887472057718, ~40.849304131586, popup = ~as.factor(hs_dbn), label = ~hs_dbn, icon = school_icon) #%>%
-    addProviderTiles("CartoDB.Positron") %>%
-    setView(-73.98, 40.75, zoom = 13)
 
 
-############## Function to get map ###############
-
-map_hs_to_mid <- function(high_school, school_year) {
-  
-  hs_to_mid <- hs_to_mid %>% filter(hs_dbn == high_school & year == school_year)
-  
-  ms_map <- merge(ms_dbns, hs_to_mid, by.x = "dbn", by.y = "mid_dbn")
-
-  #plot map
-  pal <- colorNumeric(palette = "Reds",
-                    domain = range(ms_map@data$count, na.rm=T))
-
-  leaflet(ms_map) %>%
-    #addTiles() %>% 
-    addPolygons(weight = .5, fillColor = ~pal(count), popup = ~paste("Number of Students:", count, "</br>School Code:", dbn), fillOpacity = .7) %>% 
-    addLegend(pal = pal, values = ~count, opacity = 1, 
-              title = "<p>Where Students come from </br> to a High School</p>") %>%
-     #addMarkers(~-73.85887472057718, ~40.849304131586, popup = ~as.factor(hs_dbn), label = ~hs_dbn, icon = school_icon) #%>%
-    addProviderTiles("CartoDB.Positron") %>%
-    setView(-73.98, 40.75, zoom = 13)
-
-}
-
-# issue, not every school comes up
-map_hs_to_mid("10X368", 2009)
-
-
-```
