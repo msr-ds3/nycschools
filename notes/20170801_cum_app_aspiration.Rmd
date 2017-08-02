@@ -1,0 +1,301 @@
+---
+title: "20170801 - Application Aspiration (cont. of 0728 App Quality and Aspiration)"
+author: "Thoa"
+date: "8/01/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+theme_set(theme_bw())
+june_biog_files <- Sys.glob('/data/nycdoe/June Biog/*.csv')
+hsaps_files <- Sys.glob('/data/nycdoe/HSAPS/*.csv')
+load("/data/nycdoe/clean_data/common_data_frames/bio_data.Rdata")
+bio_data <-
+  bio_data %>% select(year, student_id_scram, "feeder_dbn(june)" = dbn, ethnicity) %>%
+  mutate(student_id_scram = as.character(student_id_scram))
+```
+
+```{r load-student-borough, results='hide', message=TRUE}
+
+# load in students' borough from HSAPS
+read_student_borough <- function(filename) {
+  year <- as.numeric(gsub('-.*$', '', basename(filename)))
+  df <- read_csv(filename, col_types = cols(student_id_scram=col_character(),
+                                            grade_level=col_integer()))
+  df$year <- year
+  df <- df %>% 
+    select(year, student_id_scram, borough)
+}
+student_borough <- map_df(hsaps_files, read_student_borough)
+```
+
+```{r load-school-percentile-and-student-performance}
+
+load('/data/nycdoe/clean_data/school_percentile_for_thoa.Rdata')
+summary(school_percentile)
+
+# bigger value for `rank` means worse school (percentile is lower). Highest percentile - 100 - is ranked number 1.
+school_percentile %>%
+  filter(rank == 1)
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+```
+
+## How ambitious are students' applications?
+
+### 1. Distribution of ambitiousness among all applicants
+
+```{r how-ambitious-are-applicants}
+
+load("/data/nycdoe/clean_data/eightgrade_apps_long_w_dbn.Rdata")
+# this has middle school but no student's borough or ethnicity.
+summary(eightgrade_apps_long_w_dbn)
+
+# will need to join June Biog in to get ethnicity and HSAPS to get ethnicity:
+applicants_ethnicity_and_borough <-
+  eightgrade_apps_long_w_dbn %>%
+  left_join(bio_data, by=c("student_id_scram", "year", "feeder_dbn(june)")) %>%
+  left_join(student_borough, by=c("student_id_scram", "year"))
+summary(applicants_ethnicity_and_borough)
+# check sanity here!!!
+# weird values in Borough: Y (2328 rows), Z (276 rows), NA (516 rows)
+applicants_ethnicity_and_borough %>% count(borough)
+# 260 applicants (across all years) account for this
+applicants_ethnicity_and_borough %>% filter(borough %in% c("Y", "Z", NA)) %>% distinct(year, student_id_scram)
+# we will drop rows with weird values for student's borough 
+applicants_ethnicity_and_borough <-
+  applicants_ethnicity_and_borough %>%
+  filter(!(borough %in% c("Y", "Z", NA)))
+# 7176 rows have "." ethnicity (i.e. missing)
+applicants_ethnicity_and_borough %>% count(ethnicity)
+applicants_ethnicity_and_borough <-
+  applicants_ethnicity_and_borough %>%
+  mutate(borough = ifelse(borough == "M", "Manhattan",
+                          ifelse(borough == "K", "Brooklyn",
+                                ifelse(borough == "Q", "Queens",
+                                       ifelse(borough == "R", "Staten Island",
+                                              "The Bronx")))),
+         ethnicity = ifelse(ethnicity == ".", "Missing", ethnicity))
+
+
+# now join in percentiles for middle and high schools
+hs_percentile <- school_percentile %>% select(dbn, "hs_percentile" = percentile, "hs_rank" = rank)
+feeder_percentile <- school_percentile %>% select("feeder_dbn" = dbn, "feeder_percentile" = percentile, "feeder_rank" = rank)
+rm(eightgrade_apps_long_w_dbn_percentile)
+eightgrade_apps_long_w_dbn_percentile <-
+  applicants_ethnicity_and_borough %>%
+  left_join(hs_percentile, by="dbn") %>%
+  left_join(feeder_percentile, by="feeder_dbn") %>%
+  select(year, student_id_scram, ethnicity, borough, feeder_dbn, feeder_percentile, choice, program_applied, "hs_dbn" = dbn, hs_percentile)
+head(eightgrade_apps_long_w_dbn_percentile)
+
+# among ~9.4 million applications, ~4.6 million don't have hs_percentile, and ~23k don't have feeder_percentile
+summary(eightgrade_apps_long_w_dbn_percentile)  
+
+# process the data: add a new column for 0/1 split below/above median
+eightgrade_apps_long_w_dbn_percentile <-
+  eightgrade_apps_long_w_dbn_percentile %>%
+  mutate(feeder_quality = ifelse(feeder_percentile >= median(feeder_percentile, na.rm=T), "Good", 
+                                 ifelse(feeder_percentile < median(feeder_percentile, na.rm=T), "Bad",
+                                 NA)))
+
+
+#####################################################
+# compute "application score"
+perapp_aspiration <-
+  eightgrade_apps_long_w_dbn_percentile %>%
+  group_by(year, student_id_scram, borough, ethnicity, feeder_quality) %>%
+  summarize(schoolpercentile_of_topchoice = hs_percentile[1]) 
+head(perapp_aspiration)
+summary(perapp_aspiration)
+
+# 83,825 rows missing topchoice-percentile 
+perapp_aspiration %>%
+  filter(is.na(schoolpercentile_of_topchoice))
+
+# for now, we will just drop all these NA (~84k rows are dropped)
+perapp_aspiration_dropNA <-
+  perapp_aspiration %>%
+  filter(!is.na(schoolpercentile_of_topchoice))
+summary(perapp_aspiration_dropNA)
+
+
+# plot it:
+yr = 2015
+
+# aggregate distribution
+(plot3 <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_histogram(aes(x = schoolpercentile_of_topchoice), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       x = "Quality of top choice school",
+       y = "Number of students") +
+  scale_y_continuous(labels = scales::comma))
+ggsave(filename = "ambitious_bytop1school_2015.pdf", plot = plot3, width = 8, height = 6)
+
+# CUM aggregate distribution
+(plot3cum <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  stat_ecdf(aes(x = schoolpercentile_of_topchoice/100), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       x = "Quality of top choice school",
+       y = "Cumulative percent of applicants") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent)) 
+ggsave(filename = "cum_ambitious_2015.pdf", plot = plot3cum, width = 10, height = 6)
+
+
+# CUM aggregate distribution - split by BOROUGH
+(plot3cum_borough <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  stat_ecdf(aes(x = schoolpercentile_of_topchoice/100, color = borough)) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       x = "Quality of top choice school",
+       y = "Cumulative percent of applicants",
+       color = "Borough") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent))
+ggsave(filename = "cum_ambitious_borough_2015.pdf", plot = plot3cum_borough, width = 10, height = 6)
+
+# CUM aggregate distribution - split by ETHNICITY
+(plot3cum_ethnicity <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  stat_ecdf(aes(x = schoolpercentile_of_topchoice/100, color = ethnicity)) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       x = "Quality of top choice school",
+       y = "Cumulative percent of applicants",
+       color = "Ethnicity") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent))
+ggsave(filename = "cum_ambitious_ethnicity_2015.pdf", plot = plot3cum_ethnicity, width = 9, height = 6)
+
+# CUM aggregate distribution - split by MIDDLE SCHOOL QUALITY
+(plot3cum_feeder <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  stat_ecdf(aes(x = schoolpercentile_of_topchoice/100, color = as.factor(feeder_quality))) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       x = "Quality of top choice school",
+       y = "Cumulative percent of applicants",
+       color = "Middle school") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent))
+ggsave(filename = "cum_ambitious_feeder_2015.pdf", plot = plot3cum_feeder, width = 8, height = 6)
+
+```
+
+### 2. Students' aspirations vs. their performance
+
+```{r student-ambitious-vs-performance}
+rm(aspiration_vs_perf)
+aspiration_vs_perf <-
+  perapp_aspiration_dropNA %>%
+  left_join(avg_all_percentile, by=c("student_id_scram", "year"))
+summary(aspiration_vs_perf)
+head(aspiration_vs_perf)
+tail(aspiration_vs_perf)
+# there are 12,572 students (1.79%) with NA in performance. We will drop these.
+aspiration_vs_perf <-
+  aspiration_vs_perf %>%
+  filter(!is.na(performance))
+
+
+# plot it!
+yr = 2015
+
+# binned version w/ Jake's demand
+(plot4 <- 
+  aspiration_vs_perf %>%
+  group_by(year, binned_studPerf = round(performance)/10) %>%
+  summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
+            median = median(schoolpercentile_of_topchoice),
+            upper = quantile(schoolpercentile_of_topchoice, 0.75),
+            low10 = quantile(schoolpercentile_of_topchoice, 0.1),
+            up90 = quantile(schoolpercentile_of_topchoice, 0.9)) %>%
+  filter(year == yr) %>%
+  ggplot(aes(x = binned_studPerf, y = median)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       y = "Quality of top choice school",
+       x = "Applicant's performance")) 
+ggsave(filename = "ambitious_against_perf_2015_ribbon.pdf", plot = plot4, width = 10, height = 6)
+
+# binned version w/ Jake's demand - FACET BY BOROUGH
+(plot4_borough <-
+  aspiration_vs_perf %>%
+  group_by(year, binned_studPerf = round(performance)/10, borough) %>%
+  summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
+            median = median(schoolpercentile_of_topchoice),
+            upper = quantile(schoolpercentile_of_topchoice, 0.75),
+            low10 = quantile(schoolpercentile_of_topchoice, 0.1),
+            up90 = quantile(schoolpercentile_of_topchoice, 0.9)) %>%
+  filter(year == yr) %>%
+  ggplot(aes(x = binned_studPerf, y = median)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       y = "Quality of top choice school",
+       x = "Applicant's performance") +
+  facet_wrap(~borough))
+ggsave(filename = "ambitious_against_perf_2015_ribbon_borough.pdf", plot = plot4_borough, width = 10, height = 6)
+
+
+# binned version w/ Jake's demand - FACET BY ETHNICITY
+(plot4_ethnicity <-
+  aspiration_vs_perf %>%
+  group_by(year, binned_studPerf = round(performance)/10, ethnicity) %>%
+  summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
+            median = median(schoolpercentile_of_topchoice),
+            upper = quantile(schoolpercentile_of_topchoice, 0.75),
+            low10 = quantile(schoolpercentile_of_topchoice, 0.1),
+            up90 = quantile(schoolpercentile_of_topchoice, 0.9)) %>%
+  filter(year == yr) %>%
+  ggplot(aes(x = binned_studPerf, y = median)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       y = "Quality of top choice school",
+       x = "Applicant's performance") +
+  facet_wrap(~ethnicity))
+ggsave(filename = "ambitious_against_perf_2015_ribbon_ethnicity.pdf", plot = plot4_ethnicity, width = 10, height = 6)
+
+# binned version w/ Jake's demand - FACET BY MIDDLE SCHOOL'S QUALITY
+(plot4_feeder <-
+  aspiration_vs_perf %>%
+  filter(!is.na(feeder_quality)) %>%
+  group_by(year, binned_studPerf = round(performance)/10, feeder_quality) %>%
+  summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
+            median = median(schoolpercentile_of_topchoice),
+            upper = quantile(schoolpercentile_of_topchoice, 0.75),
+            low10 = quantile(schoolpercentile_of_topchoice, 0.1),
+            up90 = quantile(schoolpercentile_of_topchoice, 0.9)) %>%
+  mutate(feeder_quality = ifelse(feeder_quality == "Good", "Good middle schools", "Bad middle schools")) %>%
+  filter(year == yr) %>%
+  ggplot(aes(x = binned_studPerf, y = median)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       y = "Quality of top choice school",
+       x = "Applicant's performance") +
+  facet_wrap(~feeder_quality))
+ggsave(filename = "ambitious_against_perf_2015_ribbon_feeder.pdf", plot = plot4_feeder, width = 10, height = 6)
+
+
+```
