@@ -37,6 +37,10 @@ load("~/../../data/nycdoe/clean_data/school_feature_poverty.Rdata")
 load("~/../../data/nycdoe/clean_data/totalEthnicity_per_school.Rdata")
 
 
+# grad data 
+load("/data/nycdoe/clean_data/percent_grad_per_school.Rdata")
+
+
 ```
 
 #let the joins begin!!!
@@ -47,8 +51,10 @@ load("~/../../data/nycdoe/clean_data/totalEthnicity_per_school.Rdata")
 will_i_get_in_school_features <- left_join(poverty, totalEthnicity_per_school, by = c("dbn"))
 
 # removing the total amount of students - totalStudents.x and .y
-will_i_get_in_school_features <- will_i_get_in_school_features %>%
-  select(-totalStudents.y)
+will_i_get_in_school_features <- will_i_get_in_school_features %>% select(-totalStudents.y)
+
+# rename total students column
+will_i_get_in_school_features <- will_i_get_in_school_features %>% rename(total_students = totalStudents.x)
 
 # join attendance rate to data frame
 will_i_get_in_school_features <- left_join(will_i_get_in_school_features, att_rate_per_school)
@@ -56,11 +62,16 @@ will_i_get_in_school_features <- left_join(will_i_get_in_school_features, att_ra
 # join ela and math scores
 # total column = total students in ela and math (remove tomorrow 7/27)
 will_i_get_in_school_features <- left_join(will_i_get_in_school_features, scores_by_school_only, by = "dbn")
+will_i_get_in_school_features <- will_i_get_in_school_features %>% rename(total_ela_math_takers = total)
+
+#add percent graduated
+will_i_get_in_school_features <- left_join(will_i_get_in_school_features, percent_grad, by = "dbn")
+will_i_get_in_school_features <- will_i_get_in_school_features %>% rename(total_12th_graders = numStudents)
 
 # adding regents scores
 will_i_get_in_school_features <- left_join(will_i_get_in_school_features, all_regents_scores_per_school, by = "dbn")
 
-will_i_get_in_school_features
+
 
 save(will_i_get_in_school_features, file = "/data/nycdoe/clean_data/will_i_get_in_school_features.Rdata")
 

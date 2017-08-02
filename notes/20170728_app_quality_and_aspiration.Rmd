@@ -1,0 +1,355 @@
+---
+title: "20170728 - Application Quality and Aspiration"
+author: "Thoa"
+date: "7/28/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+theme_set(theme_bw())
+```
+
+```{r load-school-percentile-and-student-performance}
+
+load('/data/nycdoe/clean_data/school_percentile_for_thoa.Rdata')
+summary(school_percentile)
+
+# bigger value for `rank` means worse school (percentile is lower). Highest percentile - 100 - is ranked number 1.
+school_percentile %>%
+  filter(rank == 1)
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+```
+
+## How good are the students who apply to a school?
+
+Note: we only care about students who put the school on their First choice in First round.
+
+```{r how-good-are-applicants-all-years}
+
+load("/data/nycdoe/clean_data/eightgrade_apps_long_w_dbn.Rdata")
+summary(eightgrade_apps_long_w_dbn)
+head(eightgrade_apps_long_w_dbn)
+# so this table has from r1programcode1 up to r1programcode12 only
+tail(eightgrade_apps_long_w_dbn$choice)
+# 104,378 rows (1.108%) missing school names. These come from 31 dbns (and programs) with "Missing" school names.
+eightgrade_apps_long_w_dbn %>%
+  filter(school_name == "Missing") %>% distinct(dbn, program_applied)
+
+# join the student's performance to the application data 
+rm(perschool_appquality)
+perschool_appquality <-
+  eightgrade_apps_long_w_dbn %>%
+  filter(choice == "r1programcode1") %>% #because we only care about what students put in r1r1
+  group_by(year, dbn) %>%
+  select(year, dbn, school_name, program_applied, pgname, student_id_scram) %>%
+  inner_join(avg_all_percentile, by=c("student_id_scram", "year")) %>%
+  arrange(year, dbn, performance)
+
+# thanks to `inner_join`, there is no row with missing student's performance
+summary(perschool_appquality)
+
+perschool_appquality_medianPerf <-
+  perschool_appquality %>%
+  group_by(year, dbn) %>%
+  summarize(median_stud_perf = median(performance),
+            mean_stud_perf = mean(performance),
+            top5_stud_perf = quantile(performance, 0.95)) 
+summary(perschool_appquality_medianPerf)
+
+```
+
+```{r how-good-are-applicants-09-15, eval=FALSE, include=FALSE}
+
+load("/data/nycdoe/clean_data/withfeatures_fullr1r1_09_15.Rdata")
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+
+# 2,291 rows (0.49%) missing school_name. This is from 31 programcodes (and dbns) without names.
+withfeatures_fullr1r1_09_15 %>%
+  filter(r1r1_schoolname == "Missing") %>% distinct(r1r1_dbn, r1programcode1)
+
+# join the student's performance to the application data 
+rm(perschool_appquality)
+perschool_appquality <-
+  withfeatures_fullr1r1_09_15 %>%
+  group_by(year, r1r1_dbn) %>%
+  select(year, r1r1_dbn, r1r1_schoolname, r1programcode1, r1r1_pgname, student_id_scram) %>%
+  inner_join(avg_all_percentile, by=c("student_id_scram", "year")) %>%
+  arrange(year, r1r1_dbn, performance)
+
+# thanks to `inner_join`, there is no row with missing student's performance
+summary(perschool_appquality)
+
+rm(perschool_appquality_medianPerf)
+perschool_appquality_medianPerf <-
+  perschool_appquality %>%
+  group_by(year, r1r1_dbn) %>%
+  summarize(median_stud_perf = median(performance),
+            mean_stud_perf = mean(performance),
+            top5_stud_perf = quantile(performance, 0.95)) 
+```
+
+Most schools receive applicants with performance in 20  - 40 (out of 100) range.
+
+```{r}
+# plot it!
+yr = 2015
+
+(plot1 <-
+  perschool_appquality_medianPerf %>%
+  filter(year == yr) %>% 
+  ggplot() +
+  geom_histogram(aes(x = median_stud_perf), bins = 80) +
+  labs(title = paste("Distribution of Applicant Quality among Schools in", yr),
+       x = "Median applicant's performance",
+       y = "Number of schools")) 
+
+ggsave(filename = "app_quality_2015.pdf", plot = plot1, width = 8, height = 6)
+
+# join in percentile of the schools themselves
+rm(temp)
+temp <- perschool_appquality_medianPerf %>%
+  inner_join(school_percentile, by="dbn") %>%
+  rename("percentile_school" = percentile)
+```
+
+Across all years, there are 2,792 schools with info on applicants' performance.
+
+```{r}
+
+summary(temp)
+```
+
+The number of schools applied to steadily increases over years. From 300 in 2015 to more than 400 in 2015. (but note, the actual number could be higher, because these are just schools with available applicant's performance.)
+
+```{r}
+
+(plot0 <- 
+  temp %>% 
+  count(year) %>% 
+  ggplot(aes(x = as.factor(year), y = n)) + 
+  geom_point() +
+  geom_text(aes(label = n), vjust = -0.7) + 
+  labs(title = "Number of High Schools Applied to over Years", x = "Year", y = "Number of High Schools",
+       subtitle = "Note: the actual number could be higher; these are just schools w/ available applicants' performance"))
+ggsave(filename = "count_schools_applied_over_years.pdf", plot = plot0, width = 8, height = 6)
+```
+
+Better schools generally receive better applicants
+
+```{r}
+
+
+# plot student's performance against school's percentile (note: there are 418 points in this plot)
+(plot2 <-
+  temp %>%  
+  filter(year == yr) %>%
+  ggplot(aes(y = median_stud_perf, x = percentile_school)) +
+  geom_point(size = 2) +
+  labs(title = paste("School percentile VS. Applicant quality in", yr), 
+       x = "School percentile (better schools on the right)",
+       y = "Typical applicant quality (higher quality on top)") +
+  geom_smooth())
+
+ggsave(filename = "school_pctile_vs_applicant_quality_2015.pdf", plot = plot2, width = 8, height = 6)
+```
+
+## How ambitious are students' applications?
+
+### 1. Distribution of ambitiousness among all applicants
+
+```{r how-ambitious-are-applicants}
+
+# load("/data/nycdoe/clean_data/eightgrade_apps_long_w_dbn.Rdata")
+# summary(eightgrade_apps_long_w_dbn)
+
+rm(eightgrade_apps_long_w_dbn_percentile)
+eightgrade_apps_long_w_dbn_percentile <-
+  eightgrade_apps_long_w_dbn %>%
+  left_join(school_percentile, by="dbn") %>%
+  select(year, student_id_scram, choice, program_applied, dbn, "percentile_school" = percentile)
+head(eightgrade_apps_long_w_dbn_percentile)
+
+# among ~9.4 million applications, ~4.6 million don't have percentile_school
+summary(eightgrade_apps_long_w_dbn_percentile)  
+
+# # sanity check: anyone not list choice1 but list choice2, etc.? YES! There are a good number of people who do this. 
+# eightgrade_apps_long_w_dbn %>%
+#   mutate(foo = is.na(program_applied)) %>%
+#   #select(year, student_id_scram, choice, program_applied, foo) %>%
+#   filter(year == 2005) %>%
+#   arrange(student_id_scram) %>%
+#   group_by(student_id_scram) %>%
+#   summarize(bar = length(rle(foo)),
+#             baz = sum(lag(foo, default=0) != foo)) %>%
+#   filter(bar > 2 | baz > 1)
+# 
+# # Because there are so many cases like this, we now only care that applicants MUST NOT SKIP TOP1 CHOICE if they ever list any choice at all.
+# eightgrade_apps_long_w_dbn_notskip_r1r1 <-
+#   eightgrade_apps_long_w_dbn %>%
+#   group_by(year, student_id_scram) %>%
+#   mutate(foo = is.na(program_applied)) %>%
+#   #select(year, student_id_scram, choice, program_applied, foo) %>%
+#   filter(year == 2005) %>%
+#   arrange(student_id_scram) %>%
+#   group_by(student_id_scram)
+# who_skip_r1r1 <-
+#   eightgrade_apps_long_w_dbn %>%
+#   filter(choice == "r1pgrogramcode1" & is.na(program_applied)) %>%
+#   left_join(eightgrade_apps_long_w_dbn, by=c("year", "student_id_scram"))
+# 
+# eightgrade_apps_long_w_dbn[which(eightgrade_apps_long_w_dbn$choice == "r1programcode1")]
+#     
+# eightgrade_apps_long_w_dbn %>%
+#   filter(student_id_scram == "102112789")
+
+# compute "application score"
+perapp_aspiration <-
+  eightgrade_apps_long_w_dbn_percentile %>%
+  group_by(year, student_id_scram) %>%
+  summarize(schoolpercentile_of_topchoice = percentile_school[1],
+            median_schoolpercentile = median(percentile_school, na.rm=TRUE)) 
+head(perapp_aspiration)
+summary(perapp_aspiration)
+
+# missing_topchoice <-
+#   eightgrade_apps_long_w_dbn_percentile %>%
+#   filter(year == 2010) %>%
+#   group_by(student_id_scram) %>%
+#   summarize(schoolpercentile_of_topchoice = percentile_school[1]) %>%
+#   filter(is.na(schoolpercentile_of_topchoice))
+# 
+# eightgrade_apps_long_w_dbn_percentile %>%
+#   filter(year == 2010 & student_id_scram %in% missing_topchoice$student_id_scram & choice == "r1programcode1") %>%
+#   count(is.na(program_applied))
+# # 
+
+# 47,414 rows like this, so it seems missing topchoice-percentile does NOT cover missing median-percentile
+perapp_aspiration %>%
+  filter(is.na(schoolpercentile_of_topchoice) & !is.na(median_schoolpercentile))
+
+# for now, we will just drop all NA, no matter which column it is in (~84k rows are dropped)
+perapp_aspiration_dropNA <-
+  perapp_aspiration %>%
+  filter(!is.na(schoolpercentile_of_topchoice) & !is.na(median_schoolpercentile))
+summary(perapp_aspiration_dropNA)
+
+# plot it:
+yr = 2015
+
+# method 1: "application score" = schoolpercentile_of_topchoice
+(plot3 <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_histogram(aes(x = schoolpercentile_of_topchoice), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       x = "Application's aspiration (based on the percentile of their top1 school)",
+       y = "Number of students at this level") +
+  scale_y_continuous(labels = scales::comma))
+ggsave(filename = "ambitious_bytop1school_2015.pdf", plot = plot3, width = 8, height = 6)
+
+# method 2: "application score" = median_schoolpercentile
+(plot4 <-
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_histogram(aes(x = median_schoolpercentile), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       x = "Application's aspiration (based on the median percentile of all schools on list)",
+       y = "Number of students at this level") +
+  scale_y_continuous(labels = scales::comma))
+ggsave(filename = "ambitious_bymedian_2015.pdf", plot = plot4, width = 8, height = 6)
+
+```
+
+### 2. Students' aspirations vs. their performance
+
+```{r student-ambitious-vs-performance}
+rm(aspiration_vs_perf)
+aspiration_vs_perf <-
+  perapp_aspiration_dropNA %>%
+  left_join(avg_all_percentile, by=c("student_id_scram", "year"))
+summary(aspiration_vs_perf)
+head(aspiration_vs_perf)
+tail(aspiration_vs_perf)
+# there are 12,576 students (1.79%) with NA in performance. We will drop these.
+aspiration_vs_perf <-
+  aspiration_vs_perf %>%
+  filter(!is.na(performance))
+
+
+# plot it!
+yr = 2015
+# method 1: "application score" = schoolpercentile_of_topchoice
+aspiration_vs_perf %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_point(aes(x = performance, y = schoolpercentile_of_topchoice), alpha = 0.2, color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       y = "Application's aspiration (based on the percentile of their top1 school)",
+       x = "Applicant's 8th-grade performance ranking")
+# method 1 : improved version 1
+aspiration_vs_perf %>%
+  group_by(year, binned_studPerf = round(performance)/10) %>%
+  summarise(mean_schoolpercentile_of_topchoice = mean(schoolpercentile_of_topchoice)) %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_point(aes(x = binned_studPerf, y = mean_schoolpercentile_of_topchoice), color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       y = "Application's aspiration (based on the percentile of their top1 school)",
+       x = "Applicant's 8th-grade performance ranking")
+# method 1 : improved version 2 (seems a bit more nuanced)
+(plot5 <-
+  aspiration_vs_perf %>%
+  mutate(binned_studPerf = as.factor(round(performance/10))) %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_boxplot(aes(x = binned_studPerf, y = schoolpercentile_of_topchoice), alpha = 0.2, color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
+       y = "Application's aspiration (based on the percentile of their top1 school)",
+       x = "Applicant's 8th-grade performance ranking"))
+ggsave(filename = "ambitious_against_perf_2015_bytop1choice.pdf", plot = plot5, width = 8, height = 6)
+
+
+# method 2: "application score" = median_schoolpercentile
+aspiration_vs_perf %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_point(aes(x = performance, y = median_schoolpercentile), alpha = 0.2, color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       y = "Application's aspiration (based on the median percentile of schools on list)",
+       x = "Applicant's 8th-grade percentile (based on GPA)")
+# method 2: improved version 1
+aspiration_vs_perf %>%
+  group_by(year, binned_studPerf = round(performance)/10) %>%
+  summarise(mean_median_schoolpercentile = mean(median_schoolpercentile)) %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_point(aes(x = binned_studPerf, y = mean_median_schoolpercentile), color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       y = "Application's aspiration (based on the median percentile of schools on list)",
+       x = "Applicant's 8th-grade performance ranking")
+# method 2: improved version 2 (seems a bit more nuanced)
+(plot6 <-
+  aspiration_vs_perf %>%
+  mutate(binned_studPerf = as.factor(round(performance/10))) %>%
+  filter(year == yr) %>%
+  ggplot() +
+  geom_boxplot(aes(x = binned_studPerf, y = median_schoolpercentile), alpha = 0.2, color = "dark blue") +
+  labs(title = paste("Aspiration vs. Performance in", yr),
+       subtitle = "Method 2: 'application score' = median_schoolpercentile",
+       y = "Application's aspiration (based on the median percentile of schools on list)",
+       x = "Applicant's 8th-grade performance ranking"))
+ggsave(filename = "ambitious_against_perf_2015_bymedian.pdf", plot = plot6, width = 8, height = 6)
+```

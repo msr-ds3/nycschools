@@ -35,8 +35,20 @@
   * [ predicting continuation take 2](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170724_predicting_continuation_take_2.html)
 
 ## 2017-07-25
+  * [ hsdbn zones students attended by school](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170725_hsdbn_zones_students_attended_by_school.html)
   * [ Regent Average Performance](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170725_Regent_Average_Performance.html)
+  * [ student percentile by grade](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170725_student_percentile_by_grade.html)
 
 ## 2017-07-26
+  * [ Regent Average Performance](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170726_Regent_Average_Performance.html)
   * [ School Features WillIGetIn](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170726_School_Features_WillIGetIn.html)
+  * [ score cor](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170726_score_cor.html)
+  * [ was satisfied w specialized and laguardia](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170726_was_satisfied_w_specialized_and_laguardia.html)
+
+## 2017-07-27
+  * [ cor 6 to 11](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170727_cor_6_to_11.html)
+  * [ cor 9 to 12](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170727_cor_9_to_12.html)
+  * [ GPA vs Performance](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170727_GPA_vs_Performance.html)
+  * [ map go to school census count](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170727_map_go_to_school_census_count.html)
+  * [ score cor all students](http://htmlpreview.github.io/?https://github.com/msr-ds3/nycschools/blob/master/notes/20170727_score_cor_all_students.html)
 
