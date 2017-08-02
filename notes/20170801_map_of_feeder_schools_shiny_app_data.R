@@ -72,9 +72,10 @@ get_mid_to_hs_map <- function(middle_school) {
                 popup = ~text, 
                 fillOpacity = .7, highlightOptions = highlightOptions(color = "white", weight = 3,
                                                                                                                                                                                                                                 bringToFront = TRUE)) %>% 
-    addLegend(pal = pal, values = ~total_student_count, opacity = 1,
-              title = paste("Distribution of the </br> high schools students</br> go to")) %>%
-    addMarkers(data = marker_schools_search, ~school_lon, ~school_lat, label = ~school_name, icon = school_icon) %>%
+    addLegend(pal = pal, values = ~total_student_count, opacity = 1, labFormat = labelFormat(suffix = " students"),
+              title = paste("High Schools </br> Students Attend")) %>%
+    addMarkers(data = marker_schools_search, ~school_lon, ~school_lat, 
+               label = ~paste("Middle School: ", school_name), icon = school_icon) %>%
     addProviderTiles("CartoDB.Positron") %>%
     setView(marker_schools_search$school_lon, marker_schools_search$school_lat, zoom = 12)
   
@@ -121,9 +122,10 @@ get_hs_from_mid_map <- function(high_school) {
                 popup = ~text,
                 fillOpacity = .7, highlightOptions = highlightOptions(color = "white", weight = 3,
                                                                                                                                                                                                                                 bringToFront = TRUE)) %>% 
-    addLegend(pal = pal, values = ~total_student_count, opacity = 1,
-              title = paste("Distribution of the </br> middle schools </br> students come </br> from")) %>%
-    addMarkers(data = marker_schools_search, ~school_lon, ~school_lat, label = ~school_name, icon = school_icon) %>%
+    addLegend(pal = pal, values = ~total_student_count, opacity = 1, labFormat = labelFormat(suffix = " students"),
+              title = paste("Middle Schools </br> Students Attend")) %>%
+    addMarkers(data = marker_schools_search, ~school_lon, ~school_lat, 
+               label = ~paste("High School: ", school_name), icon = school_icon) %>%
     addProviderTiles("CartoDB.Positron") %>%
     setView(marker_schools_search$school_lon, marker_schools_search$school_lat, zoom = 12)
   
@@ -131,5 +133,3 @@ get_hs_from_mid_map <- function(high_school) {
 
 # calling function
 get_hs_from_mid_map("14K449")
-
-
