@@ -21,16 +21,26 @@ library(rgdal)
 
 load("/data/nycdoe/school_info_with_lat_long.Rdata")
 
-#loda bio data 
+#load bio data 
 load("/data/nycdoe/clean_data/common_data_frames/bio_data.Rdata")
 
 load("/data/nycdoe/clean_data/common_data_frames/zoneData.Rdata")
+
+load("/data/nycdoe/clean_data/school_info_join.Rdata")
 
 boro_zip <- read.csv("/data/nycdoe/nyc_zip_to_borough.csv")
 
 all_bio_data <- bio_data
 
 zone_data <- zoneData
+
+```
+
+```{r}
+hs <- school_info %>% filter(str_detect(`Grades Final`, "12"))
+mid  <- school_info %>% filter(str_detect(`Grades Final`, "08"))
+elem <- school_info %>% filter(str_detect(`Grades Final`, "02"))
+
 ```
 
 #join boro zips to county (another way to detirming boro)
@@ -46,7 +56,7 @@ save(boro_zip_join, file = "/data/nycdoe/clean_data/boro_zip_join.Rdata")
 
 ```
 
-load and select from zone data
+select from zone data
 ```{r}
 
 zoneData <- zone_data %>% select(c(1,2,3,4,5,7,8))
@@ -81,15 +91,16 @@ student_go_to_schools <- student_go_to_schools %>% mutate(res_zip_cde = as.integ
 #join to get county
 student_go_to_schools_join_county <- full_join(student_go_to_schools, boro_zip_join, by = c("res_zip_cde" = "zipcode"))
 
-student_go_to_schools_join_county <- student_go_to_schools_join_county %>% group_by(year, dbn, census_tract, county) %>% summarise(numStudents = n())
+student_go_to_schools_join_county <- student_go_to_schools_join_county %>% group_by(year, dbn, census_tract, county) %>%   summarise(numStudents = n())
 
 #filter na values
 na_check <- student_go_to_schools_join_county %>% filter(is.na(census_tract) | is.na(county))
 
 nrow(na_check)/nrow(student_go_to_schools_join_county)
-#dropping  0.01311077 (%) where either county or tract is na (county is na when there was no zip code)
+#dropping 0.01311077 (%) where either county or tract is na (county is na when there was no zip code)
 
-student_go_to_schools_join_county  <- student_go_to_schools_join_county %>% filter(!is.na(census_tract) | !is.na(county))
+student_go_to_schools_join_county  <- student_go_to_schools_join_county %>% filter(!is.na(census_tract) & !is.na(county))
+
 
 
 ```
@@ -113,9 +124,13 @@ student_go_to_schools_join_county<- student_go_to_schools_join_county  %>% mutat
 
 #join with lat long on dbn
 ```{r}
-student_go_to_schools_join_county_join_latLong <- inner_join(student_go_to_schools_join_county, lat_long, by = "dbn")
+student_go_to_schools_join_county_join_latLong <- left_join(student_go_to_schools_join_county, lat_long, by = "dbn")
 
-student_go_to_schools_join_county_join_latLong_join_name <- inner_join(student_go_to_schools_join_county_join_latLong, school_info, by = c("dbn" = "ATS System Code"))
+student_go_to_schools_join_county_join_latLong_join_name <- left_join(student_go_to_schools_join_county_join_latLong, school_info, by = c("dbn" = "ATS System Code"))
+
+
+# save this df for shiny
+save(student_go_to_schools_join_county_join_latLong_join_name, file = "/data/nycdoe/clean_data/students_go_to_school_join_county_join_latlong_join_name.Rdata")
 ```
 
 
@@ -126,7 +141,7 @@ load('/data/nycdoe/nyc_tracts.Rdata')
 
 
 #filter data to one year, one dbn
-sample_map_data <- student_go_to_schools_join_county_join_latLong_join_name %>% filter(dbn =='02M475' & year ==2009)
+sample_map_data <- student_go_to_schools_join_county_join_latLong_join_name %>% filter(dbn =='10X368' & year ==2011)
 
 #add the data to the sapcial file 
 tracts_map <- merge(nyc_tracts, sample_map_data, by.x = c("TRACTCE","COUNTYFP"), by.y =c("census_tract", "county"))
@@ -143,8 +158,8 @@ school_icon <- makeIcon(
 
 
 #############################################
-#get schools zones shapefile (THIS IS ELEMENTARY SCHOOLS!!!!)
-r<- GET("https://data.cityofnewyork.us/api/geospatial/cq6p-iwiy?method=export&format=GeoJSON")
+#get schools zones shapefile (THIS IS High SCHOOLS!!!!)
+r<- GET("https://data.cityofnewyork.us/api/geospatial/j4gs-ge7j?method=export&format=GeoJSON")
 dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
 ###############################################
 
@@ -152,10 +167,10 @@ dbns <- readOGR(content(r,'text'), 'OGRGeoJSON', verbose = F)
 #use leaflet to map data
 leaflet(tracts_map) %>%
   #addTiles() %>% 
-   addPolygons(data = dbns, color = "black") %>%
+  addPolygons(data = dbns, color = "black") %>%
   addPolygons(weight = .5, fillColor = ~pal3(numStudents), popup = ~paste("Number of Students:", numStudents, "\nCensus Tract:", TRACTCE), fillOpacity = .7) %>% 
   addLegend(pal = pal3, values = ~numStudents, opacity = 1) %>%
-   addMarkers(~lon, ~lat, icon = school_icon) %>%
+  addMarkers(~lon, ~lat, icon = school_icon , label = ~`Location Name`) %>%
   addProviderTiles("CartoDB.Positron") %>%
   setView(-73.98, 40.75, zoom = 13)
 
@@ -166,7 +181,7 @@ Make a function to do this for you
 
 #function take dbn and make map
 getMapFromDbn <- function(mydbn, myyear){
-  sample_map_data <- student_go_to_schools_join_county %>% filter(dbn == mydbn & year == myyear)
+  sample_map_data <- student_go_to_schools_join_county_join_latLong_join_name %>% filter(dbn == mydbn & year == myyear)
   tracts_map <- merge(nyc_tracts, sample_map_data, by.x = c("TRACTCE","COUNTYFP"), by.y =c("census_tract", "county"))
   
   pal3 <- colorNumeric(palette = "Reds",
@@ -174,8 +189,10 @@ getMapFromDbn <- function(mydbn, myyear){
 
 leaflet(tracts_map) %>%
   #addTiles() %>% 
-  addPolygons(weight = .5, fillColor = ~pal3(numStudents), popup = ~paste("Number of Students:", numStudents, "\nCensus Tract:", TRACTCE), fillOpacity = .7) %>% 
-  addLegend(pal = pal3, values = ~numStudents, opacity = 1) %>%
+  addPolygons(data = dbns, color = "black") %>%
+  addPolygons(weight = .5, fillColor = ~pal3(numStudents), popup = ~paste("Number of Students:", numStudents), fillOpacity = .7) %>% 
+  addLegend(pal = pal3, values = ~numStudents, opacity = 1, title = "number of students") %>%
+  addMarkers(~lon, ~lat, icon = school_icon, label = ~`Location Name`) %>%
   addProviderTiles("CartoDB.Positron") %>%
   setView(-73.98, 40.75, zoom = 13)
 }
@@ -186,7 +203,7 @@ getMapFromDbn("10X368", 2010)
 ```
 
 ```{r}
-save(student_go_to_schools_join_county, file = "/data/nycdoe/clean_data/students_go_to_school_join_county.Rdata")
+#save(student_go_to_schools_join_county, file = "/data/nycdoe/clean_data/students_go_to_school_join_county.Rdata")
 ```
 
 

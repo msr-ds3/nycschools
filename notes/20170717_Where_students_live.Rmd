@@ -1,6 +1,7 @@
 ---
 title: "Where do Students live?"
 output: html_document
+author: "Rivka and Ro"
 ---
 ###The catch: We spent a lot of time on the map and did not figure out what to remove, what is messy data etc..
 ```{r setup, include=FALSE}

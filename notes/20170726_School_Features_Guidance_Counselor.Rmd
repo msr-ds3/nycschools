@@ -1,5 +1,5 @@
 ---
-title: "School Features - Big Merge DF"
+title: "School Features - Big Merge DF Guidance Counselor"
 author: "Rivka and Ro"
 date: "7/26/2017"
 output: html_document
@@ -24,5 +24,48 @@ load("~/../../data/nycdoe/clean_data/att_rate_per_school_per_grade.Rdata")
 # poverty
 load("~/../../data/nycdoe/clean_data/school_feature_poverty.Rdata")
 
+#regents
+load("~/../../data/nycdoe/clean_data/all_regents_score_per_school.Rdata")
+
+#ethnicity
+load("~/../../data/nycdoe/clean_data/totalEthnicity_per_school.Rdata")
+
+
+
+#coerce grade_level in scores_per_SChool to integer
+scores_by_school_grade <- scores_by_school_grade %>% mutate(grade_level = as.integer(grade_level))
+```
+
+
+
+#let the joins begin!!!
+
+```{r}
+
+# left joining att rate and scores by grade bec those are largest df's (they both have grade level detail, ela-math has no hs)
+guidance_counselor <- left_join(att_rate_per_school_per_grade, scores_by_school_grade, by = c("dbn", "grade_level"))
+
+# removing the total amount of students 
+guidance_counselor<-  guidance_counselor%>%
+  select(-total)
+
+# join poverty to data frame
+guidance_counselor <- left_join(guidance_counselor, poverty, by = "dbn")
+
+#join on ethnicity
+guidance_counselor <- left_join(guidance_counselor, totalEthnicity_per_school, by = "dbn")
+
+# adding regents scores
+guidance_counselor <- left_join(guidance_counselor, all_regents_scores_per_school, by = "dbn")
+
+#remove totalStudents.X
+guidance_counselor <- guidance_counselor %>% select(-totalStudents.y)
+
+guidance_counselor
+
+
+#save the dfs
+save(guidance_counselor, file = "/data/nycdoe/clean_data/guidance_counselor_school_features.Rdata")
 
 ```
+
