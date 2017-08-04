@@ -1,6 +1,7 @@
 ---
 title: "Where do students go to school?"
 output: html_document
+author: "Rivka and Ro"
 ---
 
 ```{r setup, include=FALSE}
@@ -427,7 +428,6 @@ leaflet(dbns) %>%
 
 map_data <- merge(dbns, local_zones_data, by.x = "dbn", by.y ="zoned_elm_dbn")
 
-
 # how many students went to their local school
 leaflet(map_data) %>%
   addTiles() %>% 
@@ -437,7 +437,8 @@ leaflet(map_data) %>%
 
 
 #addCircles(~lng, ~lat, popup=ct$type, weight = 3, radius=40, 
- #                color="#ffa500", stroke = TRUE, fillOpacity = 0.8) 
+#                color="#ffa500", stroke = TRUE, fillOpacity = 0.8) 
+
 ```
 
 
@@ -473,7 +474,4 @@ local_zones_data %>% ggplot(aes(x  = perc_local)) + geom_histogram() + xlab("Num
 local_zones_data %>% ggplot(aes(y = perc_local, x = zoned_elm_dbn)) + geom_density() 
 ```
 
-```{r}
 
-
-```

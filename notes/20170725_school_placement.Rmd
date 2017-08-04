@@ -18,7 +18,15 @@ library(readxl)
 load('/data/nycdoe/clean_data/common_data_frames/bio_data.Rdata')
 ```
 
-#Fix school data! dont join on zones. feeder school file is messed up!!!
+
+```{r}
+grades <- c(0, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12)
+schools <-c("em", "em", "em" , "em" , "em", "em", "mid" , "mid", "mid", "hs", "hs", "hs",  "hs")
+map_grade <- data.frame(grades, schools)
+
+```
+
+Goal: df with student, year, gradem school (em,mid,hs)
 ```{r}
 all_bios <- bio_data
 
@@ -28,7 +36,8 @@ all_bios <- bio_data
 bios_dbn <- all_bios %>% 
   select(student_id_scram, dbn, year, grade_level)
 
-bios_dbn <- bios_dbn %>% mutate(grade_level = ifelse(grade_level == "0K", "00", grade_level))
+bios_dbn <- bios_dbn %>%
+  mutate(grade_level = ifelse(grade_level == "0K", "00", grade_level))
 
 #filter out grades before k
 bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filter(!is.na(grade_level))
@@ -36,46 +45,135 @@ bios_dbn <- bios_dbn %>% mutate(grade_level = as.integer(grade_level)) %>% filte
 #join data so you see students
 bios_dbn <- bios_dbn %>% full_join(map_grade, by = c("grade_level" = "grades"))
 
-save(bios_dbn, file = "/data/nycdoe/clean_data/bios_dbn.Rdata")
+#save(bios_dbn, file = "/data/nycdoe/clean_data/bios_dbn.Rdata")
 
 ```
+
+
+
 ```{r}
 
-placed <- join_zone_bio %>% ungroup() %>% filter(schools == "mid") %>% select(student_id_scram, dbn)
+#select students with middle schools
+placed <- bios_dbn %>% filter(schools == "mid") %>% select(student_id_scram, dbn)
 colnames(placed)[2] <- "mid_dbn"
 
-placedhs <- join_zone_bio %>% ungroup() %>% filter(schools == "hs") %>% select(student_id_scram, year, dbn)
-colnames(placedhs)[3] <- "hs_dbn"
+max_year_min_year <- bios_dbn %>% group_by(student_id_scram, schools) %>% filter(ifelse(schools == "mid", year == max(year), year == min(year)))
+nrow(max_year_min_year)
 
-join_mid_hs <- inner_join(placed, placedhs, by = c("student_id_scram"))
+#each student has only one hs
+max_year_min_year %>% filter(schools == "hs") %>% group_by(student_id_scram) %>% summarise(count = n())
 
-where_students_go_feeder_data <- join_mid_hs %>% group_by(mid_dbn, hs_dbn, year) %>% summarise(count = n())
+#each student has one mid school
+max_year_min_year %>% filter(schools == "mid") %>% group_by(student_id_scram) %>% summarise(count = n()) %>% group_by(count) %>% summarise(countx =n())
 
-where_students_go_feeder_data_year <- join_mid_hs %>% group_by(mid_dbn, hs_dbn, year) %>% summarise(count = n())
+#filter out em school
+max_year_min_year <- max_year_min_year %>% filter(schools == "hs" | schools == "mid")
+nrow(max_year_min_year) # 2319326 rows
+
+max_year_min_year <- max_year_min_year %>% select(student_id_scram, schools, dbn) %>% spread(schools, dbn)
+
+max_year_min_year %>% filter(!is.na(hs) & !is.na(mid))
+
+#keep in hs year!!!!
+
+```
+
+
+```{r}
+# 
+# placed <- join_zone_bio %>% ungroup() %>% filter(schools == "mid") %>% select(student_id_scram, dbn)
+# colnames(placed)[2] <- "mid_dbn"
+
+#select students with high schools
+# placedhs <- bios_dbn %>% filter(schools == "hs") %>% select(student_id_scram, year, dbn)
+# colnames(placedhs)[3] <- "hs_dbn"
+# 
+# join_mid_hs <- inner_join(placed, placedhs, by = c("student_id_scram"))
+# 
+# where_students_go_feeder_data <- join_mid_hs %>% group_by(mid_dbn, hs_dbn, year) %>% summarise(count = n())
+# 
+# where_students_go_feeder_data_year <- join_mid_hs %>% group_by(mid_dbn, hs_dbn, year) %>% summarise(count = n())
+# 
+# save(where_students_go_feeder_data_year, file = "/data/nycdoe/clean_data/where_students_go_feeder_year.Rdata")
+# 
+# save(where_students_go_feeder_data, file = "/data/nycdoe/clean_data/where_students_go_feeder.Rdata")
+# #%>% gather("schooltype","dbn", em, hs, mid) %>% filter(!is.na(dbn)) %>% select(-year)
+# 
+# nrow(placed)
+# 
+# #placed_data <- placed %>% spread(schooltype, dbn)
+# 
+# #placed_data %>% filter(!is.na(em) & !is.na(mid) & !is.na(hs))%>% group_by(student_id_scram) %>% summarise(count = n())
+
+
+```
+
+put data into feeder school format
+```{r}
+
+test<- bios_dbn %>% group_by(student_id_scram, schools, year, dbn) %>% summarise() 
+
+#take this for high school placement
+max_year_min_year <- test %>% group_by(student_id_scram, schools) %>% filter(ifelse(schools == "mid", year == max(year), year == min(year)))
+
+max_year_min_year <- max_year_min_year %>% spread(schools, dbn)
+mid_school <- max_year_min_year %>% filter(!is.na(mid)) %>% select(student_id_scram, mid)
+hs_school <- max_year_min_year %>% filter(!is.na(hs)) %>% select(student_id_scram, hs, year)
+
+mid_hs_data <- inner_join(mid_school, hs_school, by = "student_id_scram")
+
+where_students_go_feeder_data_year <- mid_hs_data %>% group_by(hs, mid, year) %>% summarise(numStudents = n())
+
+mid_hs_data %>% filter(hs == mid) %>% group_by(hs, mid, year) %>% summarise(count = n())
+
+where_students_go_feeder_data_year %>% filter(hs == '10X368' & year == 2009)
+
+where_students_go_feeder_data <- mid_hs_data %>% group_by(mid, hs) %>% summarise(count = n())
 
 save(where_students_go_feeder_data_year, file = "/data/nycdoe/clean_data/where_students_go_feeder_year.Rdata")
 
 save(where_students_go_feeder_data, file = "/data/nycdoe/clean_data/where_students_go_feeder.Rdata")
-#%>% gather("schooltype","dbn", em, hs, mid) %>% filter(!is.na(dbn)) %>% select(-year)
-
-nrow(placed)
-
-#placed_data <- placed %>% spread(schooltype, dbn)
-
-#placed_data %>% filter(!is.na(em) & !is.na(mid) & !is.na(hs))%>% group_by(student_id_scram) %>% summarise(count = n())
-
 
 ```
 
 
-See count of students in each middle school DBN
-```{r}
-placementData %>% group_by(mid) %>% summarise(count = n())
-```
+# ```{r}
+# 
+# placed <- join_zone_bio %>% ungroup() %>% filter(schools == "mid") %>% select(student_id_scram, dbn)
+# colnames(placed)[2] <- "mid_dbn"
+# 
+# placedhs <- join_zone_bio %>% ungroup() %>% filter(schools == "hs") %>% select(student_id_scram, year, dbn)
+# colnames(placedhs)[3] <- "hs_dbn"
+# 
+# join_mid_hs <- inner_join(placed, placedhs, by = c("student_id_scram"))
+# 
+# where_students_go_feeder_data <- join_mid_hs %>% group_by(mid_dbn, hs_dbn, year) %>% summarise(count = n())
+# 
+# where_students_go_feeder_data_year <- join_mid_hs %>% group_by(mid_dbn, hs_dbn, year) %>% summarise(count = n())
+# 
+# save(where_students_go_feeder_data_year, file = "/data/nycdoe/clean_data/where_students_go_feeder_year.Rdata")
+# 
+# save(where_students_go_feeder_data, file = "/data/nycdoe/clean_data/where_students_go_feeder.Rdata")
+# #%>% gather("schooltype","dbn", em, hs, mid) %>% filter(!is.na(dbn)) %>% select(-year)
+# 
+# nrow(placed)
+# 
+# #placed_data <- placed %>% spread(schooltype, dbn)
+# 
+# #placed_data %>% filter(!is.na(em) & !is.na(mid) & !is.na(hs))%>% group_by(student_id_scram) %>% summarise(count = n())
+# 
+# 
+# ```
 
-```{r}
-join_mid_hs %>% group_by(mid_dbn, hs_dbn) %>% summarise(count = n())
 
-```
+<!-- See count of students in each middle school DBN -->
+<!-- ```{r} -->
+<!-- placementData %>% group_by(mid) %>% summarise(count = n()) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- join_mid_hs %>% group_by(mid_dbn, hs_dbn) %>% summarise(count = n()) -->
+
+<!-- ``` -->
 
 
