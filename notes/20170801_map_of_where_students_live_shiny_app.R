@@ -19,8 +19,8 @@ load('/data/nycdoe/nyc_tracts.Rdata')
 load("/data/nycdoe/clean_data/df_for_shiny_map.Rdata")
 
 #################################
-#df_for_shiny_map <- student_go_to_schools_join_county_join_latLong_join_name %>% select(year, dbn, census_tract,county, numStudents, lon, lat, `Location Name` )
-#save(df_for_shiny_map, file = "/data/nycdoe/clean_data/df_for_shiny_map.Rdata")
+#df_for_shiny_map_2012 <- student_go_to_schools_join_county_join_latLong_join_name %>% filter(year == 2012) %>% select(year, dbn, census_tract,county, numStudents, lon, lat, `Location Name` )
+#save(df_for_shiny_map_2012, file = "/data/nycdoe/clean_data/df_for_shiny_map.Rdata")
 #################################
 
 #nice school icon
@@ -32,7 +32,7 @@ school_icon <- makeIcon(
 #function take dbn and make map
 get_map_from_dbn <- function(my_dbn){
   
-  sample_map_data <- df_for_shiny_map %>% 
+  sample_map_data <- df_for_shiny_map_2012 %>% 
     filter(dbn == my_dbn & year == 2012)
   
   tracts_map <- merge(nyc_tracts, sample_map_data, by.x = c("TRACTCE","COUNTYFP"), by.y =c("census_tract", "county"))
