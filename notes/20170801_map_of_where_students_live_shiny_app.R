@@ -15,7 +15,13 @@ library(reshape2)
 #load tract data
 load('/data/nycdoe/nyc_tracts.Rdata')
 
-load("/data/nycdoe/clean_data/students_go_to_school_join_county_join_latlong_join_name.Rdata")
+#load("/data/nycdoe/clean_data/students_go_to_school_join_county_join_latlong_join_name.Rdata")
+load("/data/nycdoe/clean_data/df_for_shiny_map.Rdata")
+
+#################################
+#df_for_shiny_map <- student_go_to_schools_join_county_join_latLong_join_name %>% select(year, dbn, census_tract,county, numStudents, lon, lat, `Location Name` )
+#save(df_for_shiny_map, file = "/data/nycdoe/clean_data/df_for_shiny_map.Rdata")
+#################################
 
 #nice school icon
 school_icon <- makeIcon(
@@ -26,7 +32,7 @@ school_icon <- makeIcon(
 #function take dbn and make map
 get_map_from_dbn <- function(my_dbn){
   
-  sample_map_data <- student_go_to_schools_join_county_join_latLong_join_name %>% 
+  sample_map_data <- df_for_shiny_map %>% 
     filter(dbn == my_dbn & year == 2012)
   
   tracts_map <- merge(nyc_tracts, sample_map_data, by.x = c("TRACTCE","COUNTYFP"), by.y =c("census_tract", "county"))
@@ -41,10 +47,17 @@ get_map_from_dbn <- function(my_dbn){
               title = "Distribution of Where </br> Students Live </br> Relative to their</br> School") %>%
     addMarkers(~lon, ~lat, icon = school_icon, label = ~`Location Name`) %>%
     addProviderTiles("CartoDB.Positron") %>%
-    setView(-73.98, 40.75, zoom = 12)
+    setView(-73.972, 40.71, zoom = 11)
+    #setView(-73.98, 40.75, zoom = 12)
 }
 
 
 get_map_from_dbn("10X368")
+
+#styvesant -specialized school Manhattan dbn: 02m475
+#intech academy (local hs -non-special- Bronx) 10X368
+#baruch college hs good non special school 02M411
+#Beonx hs of science special in bronx dbn  10X445
+# NEW EXPLORATIONS INTO SCIENCE, TECHNOLOGY AND MATH HIGH SCHOOL top school 01M539
 
 

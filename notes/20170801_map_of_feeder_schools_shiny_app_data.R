@@ -5,7 +5,7 @@ library(httr)
 library(sp)
 library(rgdal)
 library(readr)
-library(htmlwidgets)
+#library(htmlwidgets)
 
 
 
@@ -38,6 +38,9 @@ school_icon <- makeIcon(
 
 ######## Function for getting middle school and year ########
 
+get_boros <- GET("https://data.cityofnewyork.us/api/geospatial/tqmj-j8zm?method=export&format=GeoJSON")
+boros <- readOGR(content(get_boros,'text'), 'OGRGeoJSON', verbose = F)
+
 get_mid_to_hs_map <- function(middle_school) {
   
   # data fed into map
@@ -68,8 +71,9 @@ get_mid_to_hs_map <- function(middle_school) {
   # map
   leaflet(ms_map) %>%
     #addTiles() %>% 
+    #addPolygons(data = boros, color = "Black") %>%
     addPolygons(weight = .5, color="blue", fillColor = ~pal(total_student_count), 
-                popup = ~text, 
+                popup = ~text,
                 fillOpacity = .7, highlightOptions = highlightOptions(color = "white", weight = 3,
                                                                                                                                                                                                                                 bringToFront = TRUE)) %>% 
     addLegend(pal = pal, values = ~total_student_count, opacity = 1, labFormat = labelFormat(suffix = " students"),
@@ -77,12 +81,16 @@ get_mid_to_hs_map <- function(middle_school) {
     addMarkers(data = marker_schools_search, ~school_lon, ~school_lat, 
                label = ~paste("Middle School: ", school_name), icon = school_icon) %>%
     addProviderTiles("CartoDB.Positron") %>%
-    setView(marker_schools_search$school_lon, marker_schools_search$school_lat, zoom = 12)
+    setView(-73.972, 40.71, zoom = 11)
+    #setView(marker_schools_search$school_lon, marker_schools_search$school_lat, zoom = 12)
   
 }
 
 ## call function for a sample school
-get_mid_to_hs_map("10X368")
+get_mid_to_hs_map("03M334")
+#good middle schools: The anderson school: dbn: 03M334
+#ps 122 Mamie Faye dbn: 30Q122
+#ps 109 dbn: 22K109
 
 
 
@@ -123,7 +131,7 @@ get_hs_from_mid_map <- function(high_school) {
                 fillOpacity = .7, highlightOptions = highlightOptions(color = "white", weight = 3,
                                                                                                                                                                                                                                 bringToFront = TRUE)) %>% 
     addLegend(pal = pal, values = ~total_student_count, opacity = 1, labFormat = labelFormat(suffix = " students"),
-              title = paste("Middle Schools </br> Students Attend")) %>%
+              title = paste("Middle Schools </br> Students Come From")) %>%
     addMarkers(data = marker_schools_search, ~school_lon, ~school_lat, 
                label = ~paste("High School: ", school_name), icon = school_icon) %>%
     addProviderTiles("CartoDB.Positron") %>%
@@ -132,4 +140,4 @@ get_hs_from_mid_map <- function(high_school) {
 }
 
 # calling function
-get_hs_from_mid_map("14K449")
+get_hs_from_mid_map("10X368")
