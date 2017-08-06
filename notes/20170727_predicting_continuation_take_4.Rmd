@@ -128,6 +128,8 @@ student_bios_with_student_perf <-
   mutate(student_id_scram=as.character(student_id_scram)) %>%
   left_join(avg_all_percentile, by=c('student_id_scram', 'year', 'grade_level'))
 
+load('/data/nycdoe/clean_data/school_percentiles_for_thoa.Rdata')
+
 student_bios_with_student_perf_and_school_feat <-
   student_bios_with_student_perf %>%
   left_join(school_percentile_df, by='dbn') %>%

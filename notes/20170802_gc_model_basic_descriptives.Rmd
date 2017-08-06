@@ -1,0 +1,88 @@
+---
+title: '20170802'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(boot)
+library(glmnet)
+library(tidyverse)
+library(scales)
+library(ROCR)
+```
+
+```{r}
+load('/data/nycdoe/clean_data/june_bios_with_grad_and_school_data.Rdata')
+bios15 <- june_bios_with_grad_and_school_data
+rm(june_bios_with_grad_and_school_data)
+```
+
+Probability of Dropout of by Grade
+```{r}
+actual_vals <-
+  bios15 %>%
+  group_by(grade_level) %>%
+  summarise(avg_dropout=mean(did_not_continue), count=n(), se=sqrt((avg_dropout*(1-avg_dropout))/count)) 
+
+actual_vals$grade_level <- as.numeric(actual_vals$grade_level)
+
+actual_vals %>%
+  ggplot(aes(x=grade_level, y=avg_dropout)) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(-1, 13, 1), labels=c('-1'='Pre-K', '0'='K', '1'='1', '2'='2', '3'='3', '4'='4', '5'='5', '6'='6', '7'='7', '8'='8', '9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated')) +
+  geom_pointrange(aes(ymin=avg_dropout - se, ymax=avg_dropout + se)) +
+  labs(y="Average Dropout Rate", x="Grade Level", title="Average Dropout Rate by Grade")
+
+ggsave(filename = '../figures/avg_dropout_by_grade.png')
+```
+
+Probability of Dropout by Percent Attendence
+```{r}
+actual_vals <-
+  bios15 %>%
+  group_by(perc_attendance) %>%
+  summarise(avg_dropout=mean(did_not_continue), count=n(), se=sqrt((avg_dropout*(1-avg_dropout))/count)) 
+
+actual_vals$perc_attendance <- as.numeric(actual_vals$perc_attendance)/100
+
+actual_vals %>%
+  ggplot(aes(x=perc_attendance, y=avg_dropout)) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(labels = percent) +
+  geom_pointrange(aes(ymin=avg_dropout - se, ymax=avg_dropout + se)) +
+  labs(y="Average Dropout Rate", x="Student Attendance Rate", title="Average Dropout Rate by Percent Attendance")
+
+ggsave(filename = '../figures/avg_dropout_by_perc_attendance.png')
+```
+
+Probability of Dropout by GPA
+```{r}
+actual_vals <-
+  bios15 %>%
+  group_by(quantiled_GPA) %>%
+  summarise(avg_dropout=mean(did_not_continue), count=n(), se=sqrt((avg_dropout*(1-avg_dropout))/count)) 
+
+actual_vals$quantiled_GPA[actual_vals$quantiled_GPA=='Missing'] <- '0'
+actual_vals$quantiled_GPA <- as.numeric(actual_vals$quantiled_GPA)*10
+
+actual_vals %>%
+  ggplot(aes(x=quantiled_GPA, y=avg_dropout)) +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(labels = percent) +
+  scale_x_continuous(breaks=seq(0, 100, 10), labels=c('0'='Missing', '10'='10', '20'='20', '30'='30', '40'='40', '50'='50', '60'='60', '70'='70', '80'='80', '90'='90', '100'='100')) +
+  geom_pointrange(aes(ymin=avg_dropout - se, ymax=avg_dropout + se)) +
+  labs(x="Student GPA (100-point Scale)", y="Average Dropout Rate", title="Average Dropout Rate by Student GPA")
+
+ggsave(filename = '../figures/avg_dropout_by_gpa.png')
+```

@@ -1,0 +1,155 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(boot)
+library(glmnet)
+library(tidyverse)
+library(scales)
+library(ROCR)
+
+
+load('/data/nycdoe/clean_data/avg_all_long.Rdata')
+load('/data/nycdoe/clean_data/will_i_get_in_school_features.Rdata')
+
+load('/data/nycdoe/clean_data/june_bios_tidy.Rdata')
+
+student_bios <- bios8
+rm(bios8)
+
+avg_all_percentile <- 
+  avg_all_percentile %>%
+  ungroup() %>%
+  mutate(grade_level=as.character(grade_level),
+         year=as.character(year))
+
+student_bios_with_student_perf <-
+  student_bios %>%
+  mutate(student_id_scram=as.character(student_id_scram)) %>%
+  left_join(avg_all_percentile, by=c('student_id_scram', 'year', 'grade_level'))
+
+load('/data/nycdoe/clean_data/school_percentile_for_thoa.Rdata')
+
+student_bios_with_student_perf_and_school_feat <-
+  student_bios_with_student_perf %>%
+  left_join(school_percentile, by='dbn') %>%
+  filter(!is.na(percentile)) %>%
+  mutate(school_percentile=percentile) %>%
+  select(-percentile) %>%
+  left_join(will_i_get_in_school_features, by='dbn')
+
+student_bios_with_student_perf_and_school_feat_2 <-
+  student_bios_with_student_perf_and_school_feat %>%
+  filter(!is.na(performance)) %>%
+  mutate(perc_attendance=round(perc_attendance*100/10)*10,
+         performance=round(performance*100/10)*10,
+         school_percentile=round(school_percentile*100/10)*10,
+         avgAtt=round(avgAtt*100/10)*10)
+
+model_13_data <-
+  student_bios_with_student_perf_and_school_feat_2 %>%
+  select(did_not_continue, grade_level, sex, ethnicity, poverty, perc_attendance, performance, avgAtt, school_percentile)
+
+sample_size <- floor(0.80 * nrow(model_13_data))
+
+set.seed(19)
+train_ind <- sample(seq_len(nrow(model_13_data)), size=sample_size)
+
+train <- model_13_data[train_ind, ]
+test <- model_13_data[-train_ind, ]
+
+train_data <-
+  train %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+model_13 <- glm(cbind(train_data$yes, train_data$no) ~ grade_level + sex + ethnicity + poverty + perc_attendance + performance + avgAtt + school_percentile, family='binomial', data=train_data)
+```
+
+Evaluating model_13
+```{r}
+test_data <-
+  test %>%
+  group_by_at(setdiff(names(.), "did_not_continue")) %>%
+  summarize(yes = sum(did_not_continue), no = n() - sum(did_not_continue))
+
+
+df <- data.frame(actual = cbind(test_data$yes, test_data$no),
+                 log_odds = predict(model_13, test_data)) %>%
+  mutate(pred = ifelse(log_odds > 0, 1, 0))
+
+head(df)
+summary(df)
+```
+
+```{r}
+model_13_stats <-
+  df %>%
+  mutate(total=actual.1+actual.2, num_correct=actual.1*(pred==1) + actual.2*(pred==0)) %>%
+  mutate(yes=actual.1, no=actual.2) %>%
+  select(-actual.1, actual.2)
+  
+accuracy <-
+  model_13_stats %>%
+  summarise(accuracy=sum(num_correct)/sum(total), baseline_accuracy=sum(no)/sum(total))
+
+accuracy
+```
+
+```{r}
+precision <-
+  model_13_stats %>%
+  filter(pred==1) %>%
+  summarise(prec=sum(yes)/sum(total))
+
+precision
+```
+
+
+```{r}
+tpr <-
+  model_13_stats %>%
+  summarise(tpr=sum(yes*(pred==1))/sum(yes))
+
+tpr
+```
+
+```{r}
+fpr <-
+  model_13_stats %>%
+  summarise(fpr=sum(no*(pred==1))/sum(no))
+
+fpr
+```
+
+AUC and ROC
+```{r}
+auc_data <-
+  model_13_stats %>%
+  select(no, yes, pred) %>%
+  gather('label', 'count', 1:2) %>%
+  mutate(label=ifelse(label=='cont', 0, 1)) %>%
+  mutate(actual_yes=label) %>%
+  select(actual_yes, pred, count)
+
+auc_data <- auc_data[rep(row.names(auc_data), auc_data$count), 1:2]
+
+pred <- prediction(auc_data$pred, auc_data$actual_yes)
+
+perf_nb <- performance(pred, measure='tpr', x.measure='fpr')
+
+plot(perf_nb)
+
+performance(pred, 'auc')
+```

@@ -26,7 +26,7 @@ theme_set(theme_bw())
 ```{r}
 load('/data/nycdoe/clean_data/hs_student_dropouts_data.Rdata')
 
-final_df_2 %>%
+student_drop_outs_throughout_hs <- final_df_2 %>%
   filter(year<=2012) %>%
   ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
   geom_point() +
@@ -34,30 +34,37 @@ final_df_2 %>%
   scale_y_continuous(labels = percent) +
   scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
   geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
-  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of")
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Cohort of")
+
+student_drop_outs_throughout_hs
 ```
 
 ## Student Drop Outs Throughout High School - Faceted by Ethnicity
 ```{r}
 load('/data/nycdoe/clean_data/hs_student_dropouts_eth_data.Rdata')
 
-final_df_2 %>%
+final_df_2$ethnicity <- as.factor(final_df_2$ethnicity)
+levels(final_df_2$ethnicity) <- c("No Ethnicity Listed", "Asian", "Black", "Hispanic", "Multi-Racial", "Native American", "White")
+
+student_drop_outs_throughout_hs_ethnicity <- final_df_2 %>%
   filter(year<=2012) %>%
   ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
   geom_point() +
   geom_line() +
   scale_y_continuous(labels = percent) +
-  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
+  scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Grad.'), expand=c(0, 0.75)) +
   geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
-  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Cohort of") +
   facet_wrap(~ethnicity)
+
+student_drop_outs_throughout_hs_ethnicity
 ```
 
 ## Student Drop Outs Throughout High School - Faceted by Gender
 ```{r}
 load('/data/nycdoe/clean_data/hs_student_dropouts_gender_data.Rdata')
 
-final_df_2 %>%
+student_drop_outs_throughout_hs_gender <- final_df_2 %>%
   filter(year<=2012) %>%
   ggplot(aes(x=grade, y=num_students, color=as.factor(year))) +
   geom_point() +
@@ -65,15 +72,17 @@ final_df_2 %>%
   scale_y_continuous(labels = percent) +
   scale_x_continuous(breaks=seq(9,13,1), labels=c('9'='9', '10'='10', '11'='11', '12'='12', '13'='Graduated'), expand=c(0, 0.75)) +
   geom_dl(aes(label = as.factor(year)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.8)) +
-  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Class of") +
+  labs(x="Grade Level", y="Percent of Incoming Freshmen", title="Student Drop-Outs Throughout High School", color="Cohort of") +
   facet_wrap(~sex)
+
+student_drop_outs_throughout_hs_gender
 ```
 
 ## Average Grade-Wise Continuation Rates Across 2005-2014
 ```{r}
 load('/data/nycdoe/clean_data/average_gradewise_continuation_rates.Rdata')
 
-continuation_rates %>%
+avg_grade_wise_continuation_rates <- continuation_rates %>%
   group_by(grade_level) %>%
   summarise(avg_continuation=mean(continuation_rate), se=sd(continuation_rate)/n()) %>%
   ggplot(aes(x=grade_level, y=avg_continuation)) +
@@ -82,12 +91,14 @@ continuation_rates %>%
   geom_point() +
   geom_line() +
   labs(x="Grade Level", y="Average Percent Continuation", title="Year-to-Year Continuation") +
-  geom_errorbar(aes(ymin = avg_continuation-se, ymax = avg_continuation+se))
+  geom_pointrange(aes(ymin = avg_continuation-se, ymax = avg_continuation+se))
+
+avg_grade_wise_continuation_rates
 ```
 
 ## Average Grade-Wise Continuation Rates Split by Year
 ```{r}
-continuation_rates %>%
+avg_grade_wise_continuation_rates_by_year <- continuation_rates %>%
   filter(year!=2015) %>%
   mutate(grade_level=as.character(grade_level)) %>%
   mutate(grade_level=ifelse(grade_level=='-1','Pre-K',
@@ -99,7 +110,9 @@ continuation_rates %>%
   labs(x="Academic Year", y="Percent Continuation", title="Trends in Continuation Rates by Grade Level", color="Grade Level") +
   scale_y_continuous(labels = percent) +
   scale_x_continuous(breaks=seq(2005, 2014, 1), expand=c(0, 1)) +
-  geom_dl(aes(label = as.factor(grade_level)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.75)) 
+  geom_dl(aes(label = as.factor(grade_level)), method = list(dl.trans(x = x + .3), "last.points", cex = 0.75))
+
+avg_grade_wise_continuation_rates_by_year
 ```
 
 # Model: did_not_continue ~ grade_level + sex + ethnicity + ell + poverty + perc_attendance + quantiled_GPA + school_avg_attendance + school_avg_grad + school_avg_English + school_avg_History + school_avg_Language + school_avg_Math + school_avg_Science
@@ -280,7 +293,7 @@ performance(pred, 'auc')
 
 ## Calibration Plot
 ```{r}
-model_5_stats %>%
+calibration_plot <- model_5_stats %>%
   group_by(predicted=round(p_did_not_continue*10)/10) %>%
   summarise(num=sum(total), actual=sum(did_not_cont)/sum(total)) %>%
   ggplot(aes(x=predicted, y=actual, size=num)) +
@@ -289,7 +302,11 @@ model_5_stats %>%
   scale_x_continuous(labels=percent, lim=c(0,1)) +
   scale_y_continuous(labels=percent, lim=c(0,1)) +
   scale_size_continuous(labels=comma) +
-  labs(title='Calibration plot for Model 2', x='Predicted probability that student will not continue', y= 'Percent of students that actually did not continue', size='Number of students')
+  labs(title='Calibration plot for \'Automated Guidance Counselor\' Classification Model', x='Predicted probability that a student will not continue', y= 'Actual probability that a student will not continue', size='Number of students')
+
+calibration_plot
+
+ggsave(filename = '../figures/gc_model_calibration_plot.png', width=6)
 ```
 
 ## What Percent of Dropouts Are We Catching?
@@ -299,16 +316,18 @@ b[1,1] <-
   model_5_stats %>%
   summarise(sum(did_not_cont)/sum(total))
 
-model_5_stats %>%
+precision_plot <- model_5_stats %>%
   arrange(desc(p_did_not_continue)) %>%
   mutate(cum_total=cumsum(total), perc_cum_total=cum_total/sum(total), cum_did_not_cont=cumsum(did_not_cont), perc_cum_did_not_cont=cum_did_not_cont/sum(did_not_cont)) %>%
   ggplot(aes(x=perc_cum_total, y=perc_cum_did_not_cont)) +
   geom_line() +
-  scale_x_continuous(labels=percent) +
+  scale_x_continuous(labels=percent, breaks = seq(0, 1, 0.1)) +
   scale_y_continuous(labels=percent) +
-  labs(x="Percent of Students Predicted To Drop Out", y="Percent of Students Caught (Correctly Identified As Dropping Out)") +
-  geom_abline(linetype='dashed', color='red') +
-  geom_abline(linetype='dashed', slope=(1/b[1,1]), intercept=0, color='blue')
+  labs(x="Percent of Students Predicted To Drop Out", y="Percent of At-Risk Students Caught")
+
+precision_plot
+
+ggsave(filename = '../figures/gc_model_precision_plot.png', height=4, width=4)
 ```
 
 ## How Many Students We Intervened With Weren't Actually Going to Drop Out? 'Top K Curve'
@@ -317,17 +336,53 @@ baseline <-
   model_5_stats %>%
   summarise(base=sum(did_not_cont)/sum(total))
 
-model_5_stats %>%
+recall_plot <- model_5_stats %>%
   arrange(desc(p_did_not_continue)) %>%
   mutate(cum_total=cumsum(total), perc_cum_total=cum_total/sum(total), cum_did_not_cont=cumsum(did_not_cont), p_dropout_in_top_k=cum_did_not_cont/cum_total) %>%
   ggplot(aes(x=perc_cum_total, y=p_dropout_in_top_k)) +
   geom_line() +
-  scale_x_continuous(labels=percent) +
+  scale_x_continuous(labels=percent, breaks = seq(0, 1, 0.1)) +
   scale_y_continuous(labels=percent, limits=c(0,1)) +
-  labs(x="Top k% Students Predicted To Drop Out", y="Percent of Students in Top k% Caught") +
+  labs(x="Top k% of Students Most Likely To Drop Out (According To Model)", y="Percent of Students in Top k% Who Were Actually At Risk") +
   geom_hline(yintercept = baseline[1,1], linetype='dashed')
+
+recall_plot
+
+ggsave(filename = '../figures/gc_model_recall_plot.png', height=5, width=4)
 ```
 
+```{r}
+baseline <-
+  model_5_stats %>%
+  summarise(base=sum(did_not_cont)/sum(total))
+
+recall_plot_2 <- model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), perc_cum_total=cum_total, cum_did_not_cont=cumsum(did_not_cont), p_dropout_in_top_k=cum_did_not_cont/cum_total) %>%
+  ggplot(aes(x=perc_cum_total, y=p_dropout_in_top_k)) +
+  geom_line() +
+  scale_x_continuous(labels=comma) +
+  scale_y_continuous(labels=percent, limits=c(0,1)) +
+  labs(x="Top k Students Predicted To Drop Out", y="Percent of Students in Top k Who Were Actually At Risk") +
+  geom_hline(yintercept = baseline[1,1], linetype='dashed')
+
+recall_plot_2
+
+ggsave(filename = '../figures/gc_model_recall_plot.png', height=5, width=4)
+```
+
+```{r}
+ratio_plot <- model_5_stats %>%
+  arrange(desc(p_did_not_continue)) %>%
+  mutate(cum_total=cumsum(total), perc_cum_total=cum_total/sum(total), cum_did_not_cont=cumsum(did_not_cont), p_dropout_in_top_k=cum_did_not_cont/cum_total, perc_cum_did_not_cont=cum_did_not_cont/sum(did_not_cont), ratio=(1-p_dropout_in_top_k)/perc_cum_did_not_cont) %>%
+  ggplot(aes(x=perc_cum_total, y=ratio)) +
+  geom_line() +
+  scale_x_continuous(labels=percent) +
+  scale_y_continuous(labels=percent, limits=c(0.5,1)) +
+  labs(x="Top k% Students Predicted To Drop Out", y="Ratio of False Positives to True Positives")
+
+ratio_plot
+```
 ## Our Model's Predictions for a 'Typical' Student - Faceted by Ethnicity and Gender
 
 Typical Student:
@@ -346,11 +401,13 @@ school_avg_Science=60
 ```{r}
 load('/data/nycdoe/clean_data/model_5_stats_eth_gender.Rdata')
 
-model_5_stats_on_artificial_test_with_features_4 %>%
+model_predictions_for_typical_student <- model_5_stats_on_artificial_test_with_features_4 %>%
   group_by(grade_level, ethnicity, sex) %>%
   summarise(predicted_avg_dropout=mean(p_did_not_continue), actual_avg_dropout=mean(actual_avg_dropout)) %>%
   ggplot(aes(x=grade_level, y=predicted_avg_dropout, color=ethnicity, group=ethnicity)) +
   geom_line() +
   geom_point(aes(x=grade_level, y=actual_avg_dropout)) +
   facet_wrap(~ sex)
+
+model_predictions_for_typical_student
 ```
