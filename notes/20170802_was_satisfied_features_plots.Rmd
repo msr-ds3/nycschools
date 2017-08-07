@@ -22,21 +22,22 @@ model_data <-
 ```
 
 ```{r plot-student-percentiled-performance}
+yr <- 2015
 
 (plot1 <- 
   model_data %>%
   group_by(year, binned_studPerf = round(performance/5)*5) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
-  #filter(year == yr) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
+  filter(year == yr) %>%
   ggplot(aes(x = binned_studPerf)) +
-  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
-  labs(x = "Applicant's K8 performance",
+  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students), size = 0.3) +
+  labs(x = "Applicant's 8th grade performance",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
-  facet_wrap( ~ year))
-ggsave(filename = "featureplot_stud_perf.pdf", plot = plot1, width = 10, height = 6)
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7"))
+ggsave(filename = "featureplot_stud_perf_2_2015.pdf", plot = plot1, width = 7, height = 4)
 
 # split by borough
 # first, need to mutate the values into reader values before putting in plots
@@ -53,15 +54,16 @@ model_data <-
   group_by(year, binned_studPerf = round(performance/5)*5, borough) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
   filter(year %in% c(2009, 2011, 2013, 2015)) %>%
   ggplot(aes(x = binned_studPerf)) +
-  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
-  labs(x = "Applicant's K8 performance",
+  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students), size = 0.2) +
+  labs(x = "Applicant's 8th grade performance",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7") +
   facet_grid(borough ~ year))
-ggsave(filename = "featureplot_stud_perf_by_borough.pdf", plot = plot1_borough, width = 10, height = 6)
+ggsave(filename = "featureplot_stud_perf_by_borough_2.pdf", plot = plot1_borough, width = 10, height = 6)
 
 
 # split by ethnicity
@@ -70,16 +72,17 @@ ggsave(filename = "featureplot_stud_perf_by_borough.pdf", plot = plot1_borough, 
   group_by(year, binned_studPerf = round(performance/5)*5, ethnicity) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
-  filter(ethnicity != "Missing") %>%
-  filter(year %in% c(2009, 2011, 2013, 2015)) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
+  filter(!(ethnicity %in% c("Missing", "Native American", "Multi-Racial"))) %>%
+  filter(year %in% c(2015)) %>%
   ggplot(aes(x = binned_studPerf)) +
-  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
-  labs(x = "Applicant's K8 performance",
+  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students), size = 0.4) +
+  labs(x = "Applicant's 8th grade performance",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
-  facet_grid(ethnicity ~ year))
-ggsave(filename = "featureplot_stud_perf_by_ethnicity.pdf", plot = plot1_ethnicity, width = 10, height = 6)
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7") +
+  facet_wrap( ~ ethnicity))
+ggsave(filename = "featureplot_stud_perf_by_ethnicity_2.pdf", plot = plot1_ethnicity, width = 10, height = 6)
 
 
 # split by middle school's quality
@@ -94,15 +97,16 @@ model_data <-
   group_by(year, binned_studPerf = round(performance/5)*5, feeder_quality) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
   filter(year %in% c(2009, 2012, 2015)) %>%
   ggplot(aes(x = binned_studPerf)) +
-  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
+  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students), size = 0.3) +
   labs(x = "Applicant's K8 performance",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7") +
   facet_grid(feeder_quality ~ year))
-ggsave(filename = "featureplot_stud_perf_by_feeder.pdf", plot = plot1_feeder, width = 10, height = 6)
+ggsave(filename = "featureplot_stud_perf_by_feeder_2.pdf", plot = plot1_feeder, width = 10, height = 4)
 ```
 
 In terms of trend (not the distribution of applicants across the performance scale), plot of student's quantiled_GPA does not differ much from the plot of student's percentiled performance above.
@@ -115,13 +119,13 @@ model_data$quantiled_GPA <- factor(model_data$quantiled_GPA, levels = c("Missing
   group_by(year, quantiled_GPA) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
   #filter(year == yr) %>%
   ggplot(aes(x = quantiled_GPA)) +
   geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
-  labs(x = "Applicant's K8 quantiled GPA",
+  labs(x = "Applicant's 8th grade quantiled GPA",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7") +
   facet_wrap( ~ year))
 
 
@@ -134,15 +138,15 @@ model_data$quantiled_GPA <- factor(model_data$quantiled_GPA, levels = c("Missing
   group_by(year, binned_r1r1_percentile = round(r1r1_percentile/5)*5) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
   #filter(year == yr) %>%
   ggplot(aes(x = binned_r1r1_percentile)) +
-  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
+  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students), size = 0.3) +
   labs(x = "Quality of top choice school",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7") +
   facet_wrap( ~ year))
-ggsave(filename = "featureplot_r1r1_percentile.pdf", plot = plot3, width = 10, height = 6)
+ggsave(filename = "featureplot_r1r1_percentile_2.pdf", plot = plot3, width = 10, height = 6)
 
 ```
 
@@ -153,14 +157,14 @@ ggsave(filename = "featureplot_r1r1_percentile.pdf", plot = plot3, width = 10, h
   group_by(year, binned_r1r1_perc_grad = round(r1r1_perc_grad/5)*5) %>%
   summarize(num_students = n(),
             p_satisfied = mean(was_satisfied),
-            std_error = sd(was_satisfied)) %>%
+            std_error = sqrt(p_satisfied * (1 - p_satisfied)/num_students)) %>%
   #filter(year == yr) %>%
   ggplot(aes(x = binned_r1r1_perc_grad)) +
-  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students)) +
+  geom_pointrange(aes(y = p_satisfied, ymin = p_satisfied - std_error, ymax = p_satisfied + std_error, color = num_students), size = 0.3) +
   labs(x = "Graduation rate of top choice school",
        y = "Probability of satisfaction") +
-  scale_color_continuous("Number of applicants", label = scales::comma) +
+  scale_color_continuous("Number of\napplicants", label = scales::comma, high = "#132B43", low = "#56B1F7") +
   facet_wrap( ~ year))
-ggsave(filename = "featureplot_r1r1_perc_grad.pdf", plot = plot4, width = 10, height = 6)
+ggsave(filename = "featureplot_r1r1_perc_grad_2.pdf", plot = plot4, width = 10, height = 6)
 
 ```

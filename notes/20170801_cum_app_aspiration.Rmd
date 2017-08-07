@@ -54,7 +54,7 @@ load("/data/nycdoe/clean_data/eightgrade_apps_long_w_dbn.Rdata")
 # this has middle school but no student's borough or ethnicity.
 summary(eightgrade_apps_long_w_dbn)
 
-# will need to join June Biog in to get ethnicity and HSAPS to get ethnicity:
+# will need to join June Biog in to get ethnicity and HSAPS to get borough:
 applicants_ethnicity_and_borough <-
   eightgrade_apps_long_w_dbn %>%
   left_join(bio_data, by=c("student_id_scram", "year", "feeder_dbn(june)")) %>%
@@ -95,7 +95,7 @@ head(eightgrade_apps_long_w_dbn_percentile)
 # among ~9.4 million applications, ~4.6 million don't have hs_percentile, and ~23k don't have feeder_percentile
 summary(eightgrade_apps_long_w_dbn_percentile)  
 
-# process the data: add a new column for 0/1 split below/above median
+# process the data: add a new column for Good/Bad middle school (good = above median, bad = below median)
 eightgrade_apps_long_w_dbn_percentile <-
   eightgrade_apps_long_w_dbn_percentile %>%
   mutate(feeder_quality = ifelse(feeder_percentile >= median(feeder_percentile, na.rm=T), "Good", 
@@ -122,9 +122,12 @@ perapp_aspiration_dropNA <-
   filter(!is.na(schoolpercentile_of_topchoice))
 summary(perapp_aspiration_dropNA)
 
+#perapp_aspiration_dropNA %>% ungroup() %>% distinct(ethnicity)
 
 # plot it:
 yr = 2015
+perapp_aspiration_dropNA <-
+  perapp_aspiration_dropNA %>% ungroup()
 
 # aggregate distribution
 (plot3 <- 
@@ -137,6 +140,30 @@ yr = 2015
        y = "Number of students") +
   scale_y_continuous(labels = scales::comma))
 ggsave(filename = "ambitious_bytop1school_2015.pdf", plot = plot3, width = 8, height = 6)
+
+# pdf - split by BOROUGH
+(plot3_borough <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr & borough != "Staten Island") %>%
+  rename("Borough" = borough) %>%
+  ggplot() +
+  geom_density(aes(x = schoolpercentile_of_topchoice, fill = Borough, color = Borough), alpha = 0.2, adjust = 2) +
+  labs(x = "Quality of top choice school",
+       y = "Percent of applicants") +
+  scale_y_continuous(labels = scales::percent))
+ggsave(filename = "ambitious_bytop1school_2015_borough_density.pdf", plot = plot3_borough, width = 8, height = 5)
+
+# pdf - split by ETHNICITY
+(plot3_ethnicity <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr & !(ethnicity %in% c("Missing", "Multi-Racial", "Native American"))) %>%
+  rename("Ethnicity" = ethnicity) %>%
+  ggplot() +
+  geom_density(aes(x = schoolpercentile_of_topchoice, fill = Ethnicity, color = Ethnicity), alpha = 0.2, adjust = 2) +
+  labs(x = "Quality of top choice school",
+       y = "Percent of applicants") +
+  scale_y_continuous(labels = scales::percent))
+ggsave(filename = "ambitious_bytop1school_2015_ethnicity_density.pdf", plot = plot3_ethnicity, width = 8, height = 5)
 
 # CUM aggregate distribution
 (plot3cum <- 
@@ -215,10 +242,10 @@ aspiration_vs_perf <-
 # plot it!
 yr = 2015
 
-# binned version w/ Jake's demand
-(plot4 <- 
+# for use in complementing the Satisfaction vs. Performance plot:
+(plot5 <- 
   aspiration_vs_perf %>%
-  group_by(year, binned_studPerf = round(performance)/10) %>%
+  group_by(year, binned_studPerf = round(performance/5)*5) %>%
   summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
             median = median(schoolpercentile_of_topchoice),
             upper = quantile(schoolpercentile_of_topchoice, 0.75),
@@ -229,15 +256,14 @@ yr = 2015
   geom_line() +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
-  labs(title = paste("Aspiration vs. Performance in", yr),
-       y = "Quality of top choice school",
-       x = "Applicant's performance")) 
-ggsave(filename = "ambitious_against_perf_2015_ribbon.pdf", plot = plot4, width = 10, height = 6)
+  labs(y = "Quality of top choice school",
+       x = "Applicant's 8th grade performance")) 
+ggsave(filename = "ambitious_against_perf_2015_ribbon_2.pdf", plot = plot5, width = 10, height = 6)
 
-# binned version w/ Jake's demand - FACET BY BOROUGH
+# FACET BY BOROUGH
 (plot4_borough <-
   aspiration_vs_perf %>%
-  group_by(year, binned_studPerf = round(performance)/10, borough) %>%
+  group_by(year, binned_studPerf = round(performance/5)*5, borough) %>%
   summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
             median = median(schoolpercentile_of_topchoice),
             upper = quantile(schoolpercentile_of_topchoice, 0.75),
@@ -250,15 +276,15 @@ ggsave(filename = "ambitious_against_perf_2015_ribbon.pdf", plot = plot4, width 
   geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
   labs(title = paste("Aspiration vs. Performance in", yr),
        y = "Quality of top choice school",
-       x = "Applicant's performance") +
+       x = "Applicant's 8th grade performance") +
   facet_wrap(~borough))
 ggsave(filename = "ambitious_against_perf_2015_ribbon_borough.pdf", plot = plot4_borough, width = 10, height = 6)
 
 
-# binned version w/ Jake's demand - FACET BY ETHNICITY
+# FACET BY ETHNICITY
 (plot4_ethnicity <-
   aspiration_vs_perf %>%
-  group_by(year, binned_studPerf = round(performance)/10, ethnicity) %>%
+  group_by(year, binned_studPerf = round(performance/5)*5, ethnicity) %>%
   summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
             median = median(schoolpercentile_of_topchoice),
             upper = quantile(schoolpercentile_of_topchoice, 0.75),
@@ -271,15 +297,15 @@ ggsave(filename = "ambitious_against_perf_2015_ribbon_borough.pdf", plot = plot4
   geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
   labs(title = paste("Aspiration vs. Performance in", yr),
        y = "Quality of top choice school",
-       x = "Applicant's performance") +
+       x = "Applicant's 8th grade performance") +
   facet_wrap(~ethnicity))
 ggsave(filename = "ambitious_against_perf_2015_ribbon_ethnicity.pdf", plot = plot4_ethnicity, width = 10, height = 6)
 
-# binned version w/ Jake's demand - FACET BY MIDDLE SCHOOL'S QUALITY
+# FACET BY MIDDLE SCHOOL'S QUALITY
 (plot4_feeder <-
   aspiration_vs_perf %>%
   filter(!is.na(feeder_quality)) %>%
-  group_by(year, binned_studPerf = round(performance)/10, feeder_quality) %>%
+  group_by(year, binned_studPerf = round(performance/5)*5, feeder_quality) %>%
   summarise(lower = quantile(schoolpercentile_of_topchoice, 0.25),
             median = median(schoolpercentile_of_topchoice),
             upper = quantile(schoolpercentile_of_topchoice, 0.75),
@@ -293,9 +319,8 @@ ggsave(filename = "ambitious_against_perf_2015_ribbon_ethnicity.pdf", plot = plo
   geom_ribbon(aes(ymin = low10, ymax = up90), alpha = 0.2) +
   labs(title = paste("Aspiration vs. Performance in", yr),
        y = "Quality of top choice school",
-       x = "Applicant's performance") +
+       x = "Applicant's 8th grade performance") +
   facet_wrap(~feeder_quality))
 ggsave(filename = "ambitious_against_perf_2015_ribbon_feeder.pdf", plot = plot4_feeder, width = 10, height = 6)
-
 
 ```

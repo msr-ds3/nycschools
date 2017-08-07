@@ -1999,7 +1999,7 @@ true_positives &lt;- nrow(df[which(df$adjusted_pred == 1 &amp; df$actual == 1), 
 # ACCURACY: fraction of correct classifications
 (accuracy &lt;- mean(df$adjusted_pred == df$actual))</code></pre>
 <pre><code>## [1] 0.7073858</code></pre>
-<pre class="r"><code># RECALL, SENSITIVITY: the model identifies 40% of actual-satisfied as satisfied
+<pre class="r"><code># RECALL, SENSITIVITY: the model identifies 70% of actual-satisfied as satisfied
 (recall &lt;- true_positives / (true_positives + false_negatives)) </code></pre>
 <pre><code>## [1] 0.6916859</code></pre>
 <pre class="r"><code># PRECISION: fraction of positive predictions that are actually true

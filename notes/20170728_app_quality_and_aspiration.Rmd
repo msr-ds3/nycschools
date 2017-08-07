@@ -31,10 +31,14 @@ Note: we only care about students who put the school on their First choice in Fi
 ```{r how-good-are-applicants-all-years}
 
 load("/data/nycdoe/clean_data/eightgrade_apps_long_w_dbn.Rdata")
+
 summary(eightgrade_apps_long_w_dbn)
+
 head(eightgrade_apps_long_w_dbn)
+
 # so this table has from r1programcode1 up to r1programcode12 only
 tail(eightgrade_apps_long_w_dbn$choice)
+
 # 104,378 rows (1.108%) missing school names. These come from 31 dbns (and programs) with "Missing" school names.
 eightgrade_apps_long_w_dbn %>%
   filter(school_name == "Missing") %>% distinct(dbn, program_applied)
@@ -110,7 +114,7 @@ yr = 2015
 ggsave(filename = "app_quality_2015.pdf", plot = plot1, width = 8, height = 6)
 
 # join in percentile of the schools themselves
-rm(temp)
+#rm(temp)
 temp <- perschool_appquality_medianPerf %>%
   inner_join(school_percentile, by="dbn") %>%
   rename("percentile_school" = percentile)
@@ -253,6 +257,19 @@ yr = 2015
   scale_y_continuous(labels = scales::comma))
 ggsave(filename = "ambitious_bytop1school_2015.pdf", plot = plot3, width = 8, height = 6)
 
+# CUM: method 1: "application score" = schoolpercentile_of_topchoice
+(plot3b <- 
+  perapp_aspiration_dropNA %>%
+  filter(year == yr) %>%
+  ggplot() +
+  stat_ecdf(aes(x = schoolpercentile_of_topchoice/100), bins = 40) +
+  labs(title = paste("Distribution of Aspiration in", yr),
+       x = "Quality of top choice school",
+       y = "Cumulative percent of applicants") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent)) 
+ggsave(filename = "ambitious_bytop1school_2015.pdf", plot = plot3, width = 8, height = 6)
+
 # method 2: "application score" = median_schoolpercentile
 (plot4 <-
   perapp_aspiration_dropNA %>%
@@ -294,7 +311,7 @@ aspiration_vs_perf %>%
   labs(title = paste("Aspiration vs. Performance in", yr),
        subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
        y = "Application's aspiration (based on the percentile of their top1 school)",
-       x = "Applicant's 8th-grade performance ranking")
+       x = "Applicant's 8th grade performance ranking")
 # method 1 : improved version 1
 aspiration_vs_perf %>%
   group_by(year, binned_studPerf = round(performance)/10) %>%
@@ -305,7 +322,7 @@ aspiration_vs_perf %>%
   labs(title = paste("Aspiration vs. Performance in", yr),
        subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
        y = "Application's aspiration (based on the percentile of their top1 school)",
-       x = "Applicant's 8th-grade performance ranking")
+       x = "Applicant's 8th grade performance ranking")
 # method 1 : improved version 2 (seems a bit more nuanced)
 (plot5 <-
   aspiration_vs_perf %>%
@@ -316,7 +333,7 @@ aspiration_vs_perf %>%
   labs(title = paste("Aspiration vs. Performance in", yr),
        subtitle = "Method 1: 'application score' = schoolpercentile_of_topchoice",
        y = "Application's aspiration (based on the percentile of their top1 school)",
-       x = "Applicant's 8th-grade performance ranking"))
+       x = "Applicant's 8th grade performance ranking"))
 ggsave(filename = "ambitious_against_perf_2015_bytop1choice.pdf", plot = plot5, width = 8, height = 6)
 
 
@@ -328,7 +345,7 @@ aspiration_vs_perf %>%
   labs(title = paste("Aspiration vs. Performance in", yr),
        subtitle = "Method 2: 'application score' = median_schoolpercentile",
        y = "Application's aspiration (based on the median percentile of schools on list)",
-       x = "Applicant's 8th-grade percentile (based on GPA)")
+       x = "Applicant's 8th grade percentile (based on GPA)")
 # method 2: improved version 1
 aspiration_vs_perf %>%
   group_by(year, binned_studPerf = round(performance)/10) %>%
@@ -339,7 +356,7 @@ aspiration_vs_perf %>%
   labs(title = paste("Aspiration vs. Performance in", yr),
        subtitle = "Method 2: 'application score' = median_schoolpercentile",
        y = "Application's aspiration (based on the median percentile of schools on list)",
-       x = "Applicant's 8th-grade performance ranking")
+       x = "Applicant's 8th grade performance ranking")
 # method 2: improved version 2 (seems a bit more nuanced)
 (plot6 <-
   aspiration_vs_perf %>%
@@ -350,6 +367,6 @@ aspiration_vs_perf %>%
   labs(title = paste("Aspiration vs. Performance in", yr),
        subtitle = "Method 2: 'application score' = median_schoolpercentile",
        y = "Application's aspiration (based on the median percentile of schools on list)",
-       x = "Applicant's 8th-grade performance ranking"))
+       x = "Applicant's 8th grade performance ranking"))
 ggsave(filename = "ambitious_against_perf_2015_bymedian.pdf", plot = plot6, width = 8, height = 6)
 ```
